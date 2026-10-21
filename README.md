@@ -16,7 +16,12 @@ microphone and room noise. Measurements and remaining checks are documented.
 
 - Open or focus installed applications, with exact voice aliases.
 - Switch workspaces, move a window, set fullscreen and adjust volume.
-- Start and stop preconfigured `wf-recorder` screen recording.
+- Start and stop preconfigured screen recording, with automatic HDR detection.
+- Optional instant replay: the last two minutes of screen, game sound and
+  microphone stay in RAM; “clip that” saves them with a confirmation chirp
+  (needs `gpu-screen-recorder`; idea from [Kairos](https://github.com/BasilForge/Kairos)).
+- A Clips page that plays saved clips in the window (needs `gst-plugins-good`).
+- Preserve HDR in recordings and replays with 10-bit HEVC and validated PQ/BT.2020 color metadata.
 - Configure microphone, recognition, aliases, recording and startup in GTK.
 - Mute immediately; the voice worker and microphone capture are released.
 - Optional event-driven Waybar indicator and keyboard shortcuts.
@@ -29,7 +34,8 @@ including optional microphone tracks, are separate deliberate user output.
 
 Python 3.11+, GTK 4/PyGObject, PipeWire/WirePlumber, Hyprland, GIO, `wpctl`,
 `pw-record` and systemd user services are used on the tested setup. Screen
-recording additionally needs `wf-recorder`, FFmpeg and `ffprobe`. GTK is supplied
+SDR recording additionally needs `wf-recorder`, FFmpeg and `ffprobe`; HDR recording and instant replay
+need the optional `gpu-screen-recorder` package. GTK is supplied
 by your distribution; do not build a second GTK with pip.
 
 On Arch/CachyOS, the system dependencies used here are:
@@ -74,6 +80,7 @@ recognition quality. After a system Python minor upgrade, rebuild the venv;
 | Fullscreen | “make this window fullscreen”, “exit fullscreen” |
 | Volume | “turn the volume down”, “mute volume”, “turn the sound back on” |
 | Recording | “start recording”, “stop recording”, “open the video recorder” |
+| Instant replay | “clip that”, “save replay”, “start replay”, “stop replay” |
 | Voice control | “cancel”, “stop listening” |
 
 The **Commands** page contains the full reference. **Applications → Add voice

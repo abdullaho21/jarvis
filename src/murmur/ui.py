@@ -42,6 +42,18 @@ def _merge(base: dict, patch: dict) -> dict:
     return result
 
 
+def clips(folder: Path, limit: int = 50) -> list[dict]:
+    """Saved videos in the recordings folder, newest first; hidden partial files are skipped."""
+    try:
+        entries = [entry for entry in os.scandir(folder) if entry.is_file() and not entry.name.startswith(".")
+                   and entry.name.lower().endswith((".mp4", ".mkv"))]
+    except OSError:
+        return []
+    entries.sort(key=lambda entry: entry.stat().st_mtime, reverse=True)
+    return [{"name": entry.name, "path": entry.path, "modified": entry.stat().st_mtime, "bytes": entry.stat().st_size}
+            for entry in entries[:limit]]
+
+
 def _label(text: str, css: str = "", wrap: bool = True) -> Any:
     widget = Gtk.Label(label=text, xalign=0)
     widget.set_wrap(wrap)
@@ -63,6 +75,9 @@ def _button(text: str, callback: Callable, css: str = "") -> Any:
     return widget
 
 
+PAGES = {"dashboard", "commands", "applications", "recording", "clips", "voice", "privacy"}
+
+
 class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
     def __init__(self, application: Any, page: str = "dashboard") -> None:
         super().__init__(application=application, title="Jarvis")
@@ -81,6 +96,9 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         self._recording_devices: list[dict] = []
         self._shown_recording_devices: list[dict] = []
         self._apps: list[dict] = []
+        self.player = None          # Gtk.Video, created on the first Play so GStreamer loads only then
+        self._playing = ""
+        self._last_clip = None
         self._grammar_signature: tuple | None = None
         self._test_active = False
         self._closing_test = False
@@ -105,6 +123,11 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         self.state_pill = _label("Connecting", "pill", wrap=False)
         self.state_pill.set_valign(Gtk.Align.CENTER)
         header.pack_start(self.state_pill)
+        self.replay_pill = _label("Replay on", "pill", wrap=False)
+        self.replay_pill.add_css_class("replay")
+        self.replay_pill.set_valign(Gtk.Align.CENTER)
+        self.replay_pill.set_visible(False)
+        header.pack_start(self.replay_pill)
         outer.append(header)
 
         shell = _box(0, True)
@@ -131,14 +154,16 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         self._commands_page()
         self._applications_page()
         self._recording_page()
+        self._clips_page()
         self._voice_page()
         self._privacy_page()
-        self.stack.set_visible_child_name(page if page in {"dashboard", "commands", "applications", "recording", "voice", "privacy"} else "dashboard")
+        self.stack.set_visible_child_name(page if page in PAGES else "dashboard")
 
         self.notice = _label("Connecting to the local service…", "notice")
         self.notice.set_selectable(True)
         outer.append(self.notice)
-        for widget in (self.listen_button, self.record_start, self.record_stop, self.test_button):
+        for widget in (self.listen_button, self.record_start, self.record_stop, self.test_button,
+                       self.replay_save, self.replay_toggle):
             widget.set_sensitive(False)   # until the service answers
 
     def _page(self, name: str, title: str, subtitle: str) -> Any:
@@ -152,7 +177,7 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         body.append(heading)
         scroller.set_child(body)
         self.stack.add_titled(scroller, name, {
-            "dashboard": "Overview", "commands": "Commands", "applications": "Applications",
+            "dashboard": "Overview", "commands": "Commands", "applications": "Applications", "clips": "Clips",
             "recording": "Recorder", "voice": "Voice & microphone", "privacy": "Privacy & startup",
         }[name])
         return body
@@ -327,10 +352,43 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         controls.append(self.record_stop)
         live.append(controls)
         body.append(live)
+        replay = self._card("Instant replay", "Keeps the last moments of your screen and sound in memory with gpu-screen-recorder. "
+                            "Nothing is written until you save, here or by saying “clip that”. Uses the display and folder below.")
+        self.replay_status = _label("Replay off", "state-title")
+        self.replay_detail = _label("Start replay to keep the last moments ready to save.", "caption")
+        self.replay_detail.set_selectable(True)
+        replay.append(self.replay_status)
+        replay.append(self.replay_detail)
+        replay_controls = _box(8, True)
+        self.replay_save = _button("Save replay", lambda: self._action("replay_save"), "primary")
+        self.replay_toggle = _button("Start replay", lambda: self._action(
+            "replay_stop" if self.status.get("replay", {}).get("state") == "on" else "replay_start"))
+        replay_controls.append(self.replay_save)
+        replay_controls.append(self.replay_toggle)
+        replay.append(replay_controls)
+        self.replay_seconds = self._spin(10, 600, 10)
+        self._row(replay, "Replay length (seconds)", self.replay_seconds)
+        self.replay_game = Gtk.Switch()
+        self._row(replay, "Game sound", self.replay_game, "Everything you hear, from your default output.")
+        self.replay_mic = Gtk.Switch()
+        self._row(replay, "Microphone", self.replay_mic, "Your voice from the default input, mixed into the same track.")
+        self.replay_sound = Gtk.Switch()
+        self._row(replay, "Clip sound", self.replay_sound, "A short chirp when a clip is saved; a low tone if saving fails.")
+        self.replay_autostart = Gtk.Switch()
+        self._row(replay, "Start with Jarvis", self.replay_autostart, "Turn replay on whenever the background service starts.")
+        body.append(replay)
         capture = self._card("Capture source", "The recorder uses an existing Wayland capture backend. Start can fail if session permissions or dependencies are missing.")
         self.monitor = Gtk.DropDown.new_from_strings(["No displays discovered"])
         self.monitor.set_hexpand(True)
         self._row(capture, "Display", self.monitor)
+        self.color_mode = Gtk.DropDown.new_from_strings(["Automatic", "Preserve HDR (HEVC 10-bit)", "SDR"])
+        self._row(capture, "Color / HDR", self.color_mode,
+                  "Applies to recording and replay. Automatic detects the display HDR preset when capture starts. "
+                  "Choose Preserve HDR for fullscreen HDR passthrough or older Hyprland versions. "
+                  "Restart capture after changing display HDR. HDR uses GPU Screen Recorder; the SDR encoder below applies to SDR only.")
+        capture.append(_label("HDR clips need an HDR-aware player and display, or a player that tone maps to SDR. "
+                              "The built-in preview may not display HDR correctly; use Open in your player. "
+                              "SDR capture requires display HDR to be off; Jarvis does not tone map direct monitor capture.", "caption"))
         self.output_dir = self._entry("~/Videos/Murmur")
         self._row(capture, "Save recordings to", self.output_dir)
         self.system_audio = Gtk.Switch()
@@ -362,6 +420,84 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         body.append(card)
         body.append(_button("Save recorder settings", self._save_recording, "primary"))
         body.append(_label("Opening the recorder never starts capture. Stop & save requests a graceful finalization; wait for the saved-file confirmation.", "caption"))
+
+    def _clips_page(self) -> None:
+        body = self._page("clips", "Your clips.", "Saved replays and recordings, newest first. Play them right here.")
+        self.player_card = self._card("Now playing")
+        self.player_title = _label("", "caption")
+        self.player_card.append(self.player_title)
+        self.player_card.append(_label("HDR color depends on player support. If colors look washed out, use Open in your player "
+                                       "with HDR output or HDR-to-SDR tone mapping enabled.", "caption"))
+        player_actions = _box(8, True)
+        player_actions.append(_button("Close player", self._close_player))
+        player_actions.append(_button("Open in your player", lambda: self._launch_clip(False)))
+        player_actions.append(_button("Show in folder", lambda: self._launch_clip(True)))
+        self.player_card.append(player_actions)
+        self.player_card.set_visible(False)
+        body.append(self.player_card)
+        library = self._card("Library")
+        self.clips_caption = _label("Your saved clips appear here.", "caption")
+        library.append(self.clips_caption)
+        self.clip_list = _box(8)
+        library.append(self.clip_list)
+        library.append(_button("Refresh", self._refresh_clips))
+        body.append(library)
+        self.stack.connect("notify::visible-child-name", lambda *_: self._clips_page_shown())
+
+    def _clips_page_shown(self) -> None:
+        if self.stack.get_visible_child_name() == "clips":
+            self._refresh_clips()
+        else:
+            self._close_player()   # leaving the page releases the video and its pipeline
+
+    def _refresh_clips(self) -> None:
+        folder = Path(str(self.config.get("recording", {}).get("output_dir", "~/Videos/Murmur"))).expanduser()
+        self._work(lambda: clips(folder), lambda found: self._render_clips(folder, found if isinstance(found, list) else []))
+
+    def _render_clips(self, folder: Path, found: list) -> None:
+        self._clear(self.clip_list)
+        self.clips_caption.set_text(f"{len(found)} clips in {folder}" if found else
+                                    f"No clips in {folder} yet. Say “clip that” while instant replay is on.")
+        for clip in found:
+            row = _box(12, True)
+            row.add_css_class("app-row")
+            labels = _box(4)
+            labels.set_hexpand(True)
+            labels.append(_label(clip["name"], "row-title"))
+            when = time.strftime("%Y-%m-%d %H:%M", time.localtime(clip["modified"]))   # no locale month names in English text
+            labels.append(_label(f"{when} · {clip['bytes'] / 1048576:.1f} MB", "caption"))
+            play = _button("Play", lambda path=clip["path"]: self._play_clip(path))
+            play.set_valign(Gtk.Align.CENTER)
+            play.update_property([Gtk.AccessibleProperty.LABEL], [f"Play {clip['name']}"])
+            row.append(labels)
+            row.append(play)
+            self.clip_list.append(row)
+
+    def _play_clip(self, path: str) -> None:
+        if self.player is None:
+            self.player = Gtk.Video(autoplay=True)
+            self.player.set_size_request(-1, 360)
+            self.player_card.insert_child_after(self.player, self.player_title)
+        self.player.set_filename(path)
+        stream = self.player.get_media_stream()
+        if stream is not None:
+            stream.connect("notify::error", self._player_error)
+        self._playing = path
+        self.player_title.set_text(Path(path).name)
+        self.player_card.set_visible(True)
+
+    def _player_error(self, stream: Any, _pspec: Any) -> None:
+        if stream.get_error() is not None:
+            self._notice("This clip can't play here. Install gst-plugins-good for MP4 playback, or use “Open in your player”.", True)
+
+    def _close_player(self) -> None:
+        if self.player is not None:
+            self.player.set_file(None)   # drops the media stream and its GStreamer pipeline
+        self.player_card.set_visible(False)
+
+    def _launch_clip(self, folder: bool) -> None:
+        launcher = Gtk.FileLauncher.new(Gio.File.new_for_path(self._playing))
+        (launcher.open_containing_folder if folder else launcher.launch)(self, None, None)
 
     def _voice_page(self) -> None:
         body = self._page("voice", "A microphone on your terms.", "Hands-free activation uses a small local recognizer. Push-to-talk is available when you prefer it.")
@@ -605,6 +741,23 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         self.recorder_file.set_text(detail or "Your saved file will appear here.")
         self.record_start.set_sensitive(self.connected and rec_state in {"idle", "error"})
         self.record_stop.set_sensitive(self.connected and rec_state == "recording")
+        replay = status.get("replay", {})
+        replay_state = replay.get("state", "off")
+        self.replay_pill.set_visible(replay_state == "on")
+        if replay.get("file") and replay.get("file") != self._last_clip:
+            self._last_clip = replay.get("file")
+            if self.stack.get_visible_child_name() == "clips":
+                self._refresh_clips()
+        self.replay_status.remove_css_class("active")
+        if replay_state == "on":
+            self.replay_status.add_css_class("active")
+        self.replay_status.set_text({"on": "Replay on", "stopping": "Stopping replay…",
+                                     "error": "Replay needs attention"}.get(replay_state, "Replay off"))
+        replay_detail = "\n".join(str(value) for value in (replay.get("message"), replay.get("file")) if value)
+        self.replay_detail.set_text(replay_detail or "Start replay to keep the last moments ready to save.")
+        self.replay_save.set_sensitive(self.connected and replay_state == "on")
+        self.replay_toggle.set_label("Stop replay" if replay_state == "on" else "Start replay")
+        self.replay_toggle.set_sensitive(self.connected and replay_state in ("on", "off", "error"))
         return False
 
     def _update_speech_support(self, status: dict) -> None:
@@ -671,11 +824,19 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         self.noise_suppression.set_active(bool(recognition.get("noise_suppression", False)))
         self.adaptive_gate.set_active(bool(self.config.get("audio", {}).get("adaptive_gate", True)))
         self.output_dir.set_text(str(recorder.get("output_dir", "~/Videos/Murmur")))
+        modes = ["auto", "hdr", "sdr"]
+        self.color_mode.set_selected(modes.index(recorder.get("color_mode", "auto")))
         self.combined_audio.set_active(bool(recorder.get("combined_audio_source", False)))
         self.system_audio.set_active(bool(recorder.get("system_audio", False)))
         self.record_mic.set_active(bool(recorder.get("microphone", False)))
         self.capture_configured.set_active(bool(recorder.get("configured", False)))
         self.sound_feedback.set_active(bool(recorder.get("sound_feedback", False)))
+        replay = self.config.get("replay", {})
+        self.replay_seconds.set_value(float(replay.get("seconds", 120)))
+        self.replay_autostart.set_active(bool(replay.get("autostart", False)))
+        self.replay_game.set_active(bool(replay.get("game_audio", True)))
+        self.replay_mic.set_active(bool(replay.get("microphone", True)))
+        self.replay_sound.set_active(bool(replay.get("sound", True)))
         self._populate_record_devices()
         self.fps.set_value(float(recorder.get("fps", 30)))
         codecs = ["libx264", "h264_vaapi"]
@@ -706,7 +867,9 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         selected_monitor = self.config.get("recording", {}).get("monitor", "")
         if selected_monitor and not any(item.get("name") == selected_monitor for item in self._monitors):
             self._monitors.append({"name": selected_monitor, "width": "?", "height": "?"})
-        labels = [f"{item['name']} · {item.get('width', '?')} × {item.get('height', '?')}" for item in self._monitors]
+        labels = [f"{item['name']} · {item.get('width', '?')} × {item.get('height', '?')}"
+                  + (" · HDR" if item.get("colorManagementPreset") in ("hdr", "hdredid") else "")
+                  for item in self._monitors]
         self.monitor.set_model(Gtk.StringList.new(labels or ["No displays discovered — reconnect in Hyprland"]))
         self.monitor.set_selected(next((i for i, item in enumerate(self._monitors) if item.get("name") == selected_monitor), 0))
 
@@ -919,8 +1082,12 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
             "system_audio": self.system_audio.get_active(), "microphone": self.record_mic.get_active(),
             "configured": self.capture_configured.get_active(), "sound_feedback": self.sound_feedback.get_active(),
             "combined_audio_source": self.combined_audio.get_active(),
+            "color_mode": ["auto", "hdr", "sdr"][self.color_mode.get_selected()],
             "audio_device": source, "fps": self.fps.get_value_as_int(),
-            "codec": ["libx264", "h264_vaapi"][self.codec.get_selected()], "quality": self.quality.get_value_as_int()}},
+            "codec": ["libx264", "h264_vaapi"][self.codec.get_selected()], "quality": self.quality.get_value_as_int()},
+            "replay": {"seconds": self.replay_seconds.get_value_as_int(), "autostart": self.replay_autostart.get_active(),
+                       "game_audio": self.replay_game.get_active(), "microphone": self.replay_mic.get_active(),
+                       "sound": self.replay_sound.get_active()}},
             "Recorder settings saved. Start recording explicitly, or say “Start recording”.")
 
     def _recording_preset(self) -> None:
@@ -1123,7 +1290,7 @@ def start_service_process() -> tuple[str, Path | None]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Jarvis native GTK4 settings")
-    parser.add_argument("--page", choices=["dashboard", "commands", "applications", "recording", "voice", "privacy"], default="dashboard")
+    parser.add_argument("--page", choices=sorted(PAGES), default="dashboard")
     args = parser.parse_args(argv)
     if Gtk is None:
         print("Jarvis settings require GTK4 and PyGObject (python-gobject on Arch, python3-gi and gir1.2-gtk-4.0 on Debian/Ubuntu).\n"

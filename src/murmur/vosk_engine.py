@@ -20,6 +20,8 @@ from __future__ import annotations
 from collections import deque
 import json
 from pathlib import Path
+import sys
+import types
 
 from .commands import GREETINGS, GrammarMatcher, closest_match, command_wording, match_candidates, wake_variants
 from .speech import Recognition, normalize_phrase, _TOKEN
@@ -35,6 +37,29 @@ STRICT_MIN_CONFIDENCE = 0.6  # below this, prefer a clear closest-match of the f
 CROSS_CHECK_OVERRIDE = 0.9   # free transcript overrides a disagreeing grammar result only above this
 
 
+def _import_vosk():
+    """Import vosk without the helpers its package imports for model downloads and
+    subtitles (requests, tqdm, srt, urllib.request: ~14 MiB in the voice worker).
+    They are only called when a model is fetched by name; Jarvis always passes a
+    path. Empty stand-ins satisfy the imports and are removed right afterwards."""
+    if "vosk" in sys.modules:
+        return sys.modules["vosk"]
+    stand_ins = {}
+    for name, attribute in (("requests", None), ("srt", None), ("tqdm", "tqdm"), ("urllib.request", "urlretrieve")):
+        if name not in sys.modules:
+            stand_ins[name] = types.ModuleType(name)
+            if attribute:
+                setattr(stand_ins[name], attribute, None)
+    sys.modules.update(stand_ins)
+    try:
+        import vosk
+    finally:
+        for name, module in stand_ins.items():
+            if sys.modules.get(name) is module:
+                del sys.modules[name]
+    return vosk
+
+
 class VoskEngine:
     sample_rate = SAMPLE_RATE
     frame_bytes = FRAME_BYTES
@@ -46,9 +71,10 @@ class VoskEngine:
         if not 0 <= sensitivity <= 1:
             raise ValueError("Activation sensitivity must be between 0 and 1")
         try:
-            from vosk import KaldiRecognizer, Model, SetLogLevel
+            vosk = _import_vosk()
         except ImportError as exc:
             raise RuntimeError("Vosk is not installed; run: pip install vosk==0.3.45") from exc
+        KaldiRecognizer, Model, SetLogLevel = vosk.KaldiRecognizer, vosk.Model, vosk.SetLogLevel
         from .models import valid_model
         path = Path(model_path)
         if not valid_model(path):

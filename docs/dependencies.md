@@ -15,6 +15,7 @@ models retain their own terms. This repository has not been published yet.
 | GTK 4 / PyGObject / GLib-GIO | Native UI and desktop launching | LGPL-family components; use distro shared libraries and preserve applicable notices |
 | PipeWire / WirePlumber | Input capture and volume | MIT-family projects; distro components |
 | wf-recorder | Optional capture backend | MIT; invoked as a separate installed program |
+| GPU Screen Recorder | Optional instant replay and HDR recording backend | GPL-3.0-only; invoked as a separate installed program; monitor capture uses its installed privileged KMS helper |
 | FFmpeg | Encoder/backend linkage and validation | Exact build may be LGPL or GPL depending on enabled codecs; libx264 is GPL. Review the actual build before redistributing binaries |
 | psutil | Optional benchmark tooling only | BSD-3-Clause; never imported by the service |
 

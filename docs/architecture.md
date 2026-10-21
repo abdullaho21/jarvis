@@ -43,6 +43,11 @@ explicit retry, avoiding restart churn on a broken input. Recording state is
 independent: `idle → recording → stopping → idle`, or `error` with recovery
 information. Error recovery does not silently restart capture.
 
+In hands-free mode, Listen once and Cancel are `listen`/`cancel` lines on the
+running worker's stdin, so its models stay loaded and wake detection never
+stops. Results the worker sent before reading the line are discarded. Settings
+changes still reload the models.
+
 Optional push-to-talk is a bounded listen-once session rather than a key-hold
 protocol. It loads a fresh worker on demand and destroys it afterward. Mute
 closes the audio stream, clears the decoder, and returns native allocations to

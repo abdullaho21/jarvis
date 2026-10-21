@@ -7,6 +7,16 @@ Jarvis is MIT licensed; the completed review is described in
 
 ## Current checks (2026-10-21)
 
+- All 186 tests passed with the real local Vosk/Whisper models and the checksum-verified public PCM fixture; no tests were skipped.
+- The combined replay/HDR/resident-worker review raised one minor issue: replay audio switches could be saved while the running child kept its old sources. Changes to those switches now require replay to stop, with regression coverage.
+- A reproducible selector-order bug could starve Listen once/Cancel when microphone data and a control line were ready together. Control lines now take priority in either event order; models stay resident.
+- Replay save requests allow enough time for the backend reply plus media validation, and the replay child uses a private file-creation mask. No recognition model, thread count or quality setting was reduced.
+- The follow-up CodeRabbit review raised one minor test-harness race around late subscription. Fixture playback now waits until the status observer is connected; wake observation remains required.
+- Automatic HDR capture on DP-3 produced both a recording and a saved replay with verified 10-bit HEVC, limited-range PQ/BT.2020 video; temporary silent clips were removed. See [recording verification](recording.md#hdr-recording-and-replay) for the limits.
+- The GTK HDR selector passed hidden-window construction and load/save checks for all three modes. Source and wheel builds succeeded with replay, runtime assets and HDR tests included; local agent state is excluded.
+
+## Initial publication checks (2026-10-21)
+
 - All 150 tests passed in the independent publication check (3.231 seconds),
   with real local Vosk/Whisper models and the public PCM fixture enabled;
   no tests were skipped.

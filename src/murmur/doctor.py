@@ -23,7 +23,7 @@ def report():
     # Every external program Murmur actually runs, not just the main ones.
     for name, args in {"hyprctl": ["version"], "pw-cli": ["--version"], "pw-record": ["--version"],
                        "pw-play": ["--version"], "pw-dump": ["--version"], "pactl": ["--version"],
-                       "wf-recorder": ["--version"], "wpctl": ["status"],
+                       "wf-recorder": ["--version"], "gpu-screen-recorder": ["--version"], "wpctl": ["status"],
                        "ffprobe": ["-version"], "gio": ["version"], "setpriv": ["--version"],
                        "systemd-run": ["--version"]}.items():
         path = shutil.which(name)
