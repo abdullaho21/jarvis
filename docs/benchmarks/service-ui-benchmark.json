@@ -1,0 +1,17 @@
+{
+  "mode": "ui",
+  "duration_seconds": 15.257756225000776,
+  "cpu_seconds": 0.020000000000000018,
+  "cpu_percent_one_logical_core": 0.131080872607132,
+  "peak_tree_rss_mib": 164.03515625,
+  "mean_tree_rss_mib": 163.98248922413794,
+  "peak_process_count": 2,
+  "status": "paused",
+  "python": "3.14.8",
+  "kernel": "7.2.10-1-cachyos",
+  "scope": "Whole service, speech worker and pw-record tree; UI included only in ui mode. Sum RSS double-counts shared pages. Warm-up excluded. Actions disabled. No audio saved.",
+  "live_microphone": false,
+  "voice_gpu_compute": "none by implementation; CPU-only PocketSphinx",
+  "display_backend": "Wayland; system-default GTK renderer",
+  "ui_state": "Native settings window open, service in push-to-talk standby with microphone closed"
+}

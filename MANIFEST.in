@@ -1,0 +1,9 @@
+include LICENSE README.md CONTRIBUTING.md SECURITY.md pyproject.toml
+include run-jarvis run-murmur
+recursive-include src/murmur *.py *.css *.conf
+recursive-include tests *.py
+recursive-include scripts *.py
+recursive-include examples *.json *.jsonc *.conf *.lua
+recursive-include docs *.md *.json *.png
+recursive-include .github *.yml *.md
+global-exclude *.py[cod] __pycache__

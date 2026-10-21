@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "launched_fixture_survives_parent_service_stop": true,
+  "separate_scope": true,
+  "persistent_service_files_written": false,
+  "microphone_or_screen_access": false
+}

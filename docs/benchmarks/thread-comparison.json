@@ -1,0 +1,539 @@
+{
+  "date": "2026-10-21",
+  "same_transcripts": true,
+  "scope": "Same public fixture variants; isolated transcriber; memory optimization enabled for all cases; 0.2 s post-decode CPU interval",
+  "spinning_eight": {
+    "config": "# Release completed inference buffers instead of keeping a CPU memory arena.\n# Model weights, graph optimizations and arithmetic remain unchanged.\nEnableCpuMemArena=0\n",
+    "threads": 8,
+    "cases": [
+      {
+        "case": "clean",
+        "repeat": 0,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.32698456999787595,
+        "decode_cpu_seconds": 2.452868471,
+        "settle_cpu_seconds": 0.09911903499999974
+      },
+      {
+        "case": "quiet",
+        "repeat": 0,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.3466870150004979,
+        "decode_cpu_seconds": 2.615118621,
+        "settle_cpu_seconds": 0.11015439999999987
+      },
+      {
+        "case": "noise",
+        "repeat": 0,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.3346751279968885,
+        "decode_cpu_seconds": 2.5253098109999996,
+        "settle_cpu_seconds": 0.09939608599999872
+      },
+      {
+        "case": "long",
+        "repeat": 0,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.4534813900027075,
+        "decode_cpu_seconds": 3.1712465519999995,
+        "settle_cpu_seconds": 0.1030006960000005
+      },
+      {
+        "case": "silence",
+        "repeat": 0,
+        "text": "you",
+        "decode_seconds": 0.19402256199828116,
+        "decode_cpu_seconds": 1.49043584,
+        "settle_cpu_seconds": 0.10219384799999887
+      },
+      {
+        "case": "short",
+        "repeat": 0,
+        "text": "Go forward.",
+        "decode_seconds": 0.23419064700283343,
+        "decode_cpu_seconds": 1.8758663669999986,
+        "settle_cpu_seconds": 0.12191104000000053
+      },
+      {
+        "case": "slower",
+        "repeat": 0,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.3253580310047255,
+        "decode_cpu_seconds": 2.395546597000001,
+        "settle_cpu_seconds": 0.10063542199999986
+      },
+      {
+        "case": "clean",
+        "repeat": 1,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.31243753399758134,
+        "decode_cpu_seconds": 2.352749639999999,
+        "settle_cpu_seconds": 0.12385449099999946
+      },
+      {
+        "case": "quiet",
+        "repeat": 1,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.334546132995456,
+        "decode_cpu_seconds": 2.53207033,
+        "settle_cpu_seconds": 0.12251179999999806
+      },
+      {
+        "case": "noise",
+        "repeat": 1,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.33289191200310597,
+        "decode_cpu_seconds": 2.5092077470000014,
+        "settle_cpu_seconds": 0.11952653599999863
+      },
+      {
+        "case": "long",
+        "repeat": 1,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.41636143500363687,
+        "decode_cpu_seconds": 2.8762092400000014,
+        "settle_cpu_seconds": 0.11396494299999915
+      },
+      {
+        "case": "silence",
+        "repeat": 1,
+        "text": "you",
+        "decode_seconds": 0.17754253599559888,
+        "decode_cpu_seconds": 1.3684457499999994,
+        "settle_cpu_seconds": 0.11284344799999957
+      },
+      {
+        "case": "short",
+        "repeat": 1,
+        "text": "Go forward.",
+        "decode_seconds": 0.22658937899541343,
+        "decode_cpu_seconds": 1.8196722990000005,
+        "settle_cpu_seconds": 0.11706437499999822
+      },
+      {
+        "case": "slower",
+        "repeat": 1,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.35703094599739416,
+        "decode_cpu_seconds": 2.644982233999997,
+        "settle_cpu_seconds": 0.1150547880000019
+      },
+      {
+        "case": "clean",
+        "repeat": 2,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.32210807999945246,
+        "decode_cpu_seconds": 2.410763891000002,
+        "settle_cpu_seconds": 0.12320511100000431
+      },
+      {
+        "case": "quiet",
+        "repeat": 2,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.33991340300417505,
+        "decode_cpu_seconds": 2.544411891000003,
+        "settle_cpu_seconds": 0.11871469499999421
+      },
+      {
+        "case": "noise",
+        "repeat": 2,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.3385137939985725,
+        "decode_cpu_seconds": 2.5378843409999945,
+        "settle_cpu_seconds": 0.11149415399999896
+      },
+      {
+        "case": "long",
+        "repeat": 2,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.44757855699572247,
+        "decode_cpu_seconds": 3.1125538770000034,
+        "settle_cpu_seconds": 0.09247487700000079
+      },
+      {
+        "case": "silence",
+        "repeat": 2,
+        "text": "you",
+        "decode_seconds": 0.18683127899566898,
+        "decode_cpu_seconds": 1.4160819729999972,
+        "settle_cpu_seconds": 0.11605522499999665
+      },
+      {
+        "case": "short",
+        "repeat": 2,
+        "text": "Go forward.",
+        "decode_seconds": 0.22626375199615723,
+        "decode_cpu_seconds": 1.8152489020000004,
+        "settle_cpu_seconds": 0.11582329800000224
+      },
+      {
+        "case": "slower",
+        "repeat": 2,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.3136209639997105,
+        "decode_cpu_seconds": 2.3325733010000036,
+        "settle_cpu_seconds": 0.10060387300000428
+      }
+    ],
+    "median_decode_ms": 326.98456999787595,
+    "total_cpu_seconds": 51.138849816,
+    "settle_cpu_seconds": 2.3396021409999945,
+    "peak_rss_mib": 764.7421875
+  },
+  "sleeping_eight": {
+    "config": "EnableCpuMemArena=0\nSessionConfig.session.intra_op.allow_spinning=0\nSessionConfig.session.inter_op.allow_spinning=0\n",
+    "threads": 8,
+    "cases": [
+      {
+        "case": "clean",
+        "repeat": 0,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.355277880000358,
+        "decode_cpu_seconds": 1.302339913,
+        "settle_cpu_seconds": 1.5449000000167246e-05
+      },
+      {
+        "case": "quiet",
+        "repeat": 0,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.35619917300209636,
+        "decode_cpu_seconds": 1.2979972489999998,
+        "settle_cpu_seconds": 1.2883999999768747e-05
+      },
+      {
+        "case": "noise",
+        "repeat": 0,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.34896439900330734,
+        "decode_cpu_seconds": 1.2858679890000007,
+        "settle_cpu_seconds": 1.1371000000259812e-05
+      },
+      {
+        "case": "long",
+        "repeat": 0,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.4875135740003316,
+        "decode_cpu_seconds": 1.79696635,
+        "settle_cpu_seconds": 1.0921000000330139e-05
+      },
+      {
+        "case": "silence",
+        "repeat": 0,
+        "text": "you",
+        "decode_seconds": 0.19494763399416115,
+        "decode_cpu_seconds": 0.8115993809999997,
+        "settle_cpu_seconds": 1.3516000000102224e-05
+      },
+      {
+        "case": "short",
+        "repeat": 0,
+        "text": "Go forward.",
+        "decode_seconds": 0.2576628700044239,
+        "decode_cpu_seconds": 0.9434198629999999,
+        "settle_cpu_seconds": 1.6642000000288704e-05
+      },
+      {
+        "case": "slower",
+        "repeat": 0,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.3323117159961839,
+        "decode_cpu_seconds": 1.2655797289999988,
+        "settle_cpu_seconds": 1.2783000000737843e-05
+      },
+      {
+        "case": "clean",
+        "repeat": 1,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.33965306299796794,
+        "decode_cpu_seconds": 1.2695182329999994,
+        "settle_cpu_seconds": 1.2142999999298354e-05
+      },
+      {
+        "case": "quiet",
+        "repeat": 1,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.358624674998282,
+        "decode_cpu_seconds": 1.325647076000001,
+        "settle_cpu_seconds": 1.277299999991044e-05
+      },
+      {
+        "case": "noise",
+        "repeat": 1,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.3548774009977933,
+        "decode_cpu_seconds": 1.321855363000001,
+        "settle_cpu_seconds": 1.2522999998765272e-05
+      },
+      {
+        "case": "long",
+        "repeat": 1,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.44108420600241516,
+        "decode_cpu_seconds": 1.625498649999999,
+        "settle_cpu_seconds": 1.3055000000150585e-05
+      },
+      {
+        "case": "silence",
+        "repeat": 1,
+        "text": "you",
+        "decode_seconds": 0.19266855000023497,
+        "decode_cpu_seconds": 0.8055650159999992,
+        "settle_cpu_seconds": 1.4626000000461659e-05
+      },
+      {
+        "case": "short",
+        "repeat": 1,
+        "text": "Go forward.",
+        "decode_seconds": 0.23503794300631853,
+        "decode_cpu_seconds": 0.9362461349999993,
+        "settle_cpu_seconds": 1.3286000001500042e-05
+      },
+      {
+        "case": "slower",
+        "repeat": 1,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.3277050859978772,
+        "decode_cpu_seconds": 1.2103053149999994,
+        "settle_cpu_seconds": 1.4927000002273871e-05
+      },
+      {
+        "case": "clean",
+        "repeat": 2,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.32354186500015203,
+        "decode_cpu_seconds": 1.2230225160000003,
+        "settle_cpu_seconds": 1.2162000000870421e-05
+      },
+      {
+        "case": "quiet",
+        "repeat": 2,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.41444772399700014,
+        "decode_cpu_seconds": 1.4988592579999995,
+        "settle_cpu_seconds": 1.3754999997672712e-05
+      },
+      {
+        "case": "noise",
+        "repeat": 2,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.34872991500014905,
+        "decode_cpu_seconds": 1.289475093,
+        "settle_cpu_seconds": 1.1571000001708853e-05
+      },
+      {
+        "case": "long",
+        "repeat": 2,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.4454191710028681,
+        "decode_cpu_seconds": 1.618503829999998,
+        "settle_cpu_seconds": 1.4195999998634079e-05
+      },
+      {
+        "case": "silence",
+        "repeat": 2,
+        "text": "you",
+        "decode_seconds": 0.19884331800130894,
+        "decode_cpu_seconds": 0.8112899690000006,
+        "settle_cpu_seconds": 1.4347000000469734e-05
+      },
+      {
+        "case": "short",
+        "repeat": 2,
+        "text": "Go forward.",
+        "decode_seconds": 0.265535432001343,
+        "decode_cpu_seconds": 1.051943688999998,
+        "settle_cpu_seconds": 1.2963999999726639e-05
+      },
+      {
+        "case": "slower",
+        "repeat": 2,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.3348231499985559,
+        "decode_cpu_seconds": 1.2293295019999988,
+        "settle_cpu_seconds": 1.2172999998227851e-05
+      }
+    ],
+    "median_decode_ms": 339.65306299796794,
+    "total_cpu_seconds": 25.921108185999994,
+    "settle_cpu_seconds": 0.0002780670000013252,
+    "peak_rss_mib": 722.36328125
+  },
+  "sleeping_four": {
+    "config": "EnableCpuMemArena=0\nSessionConfig.session.intra_op.allow_spinning=0\nSessionConfig.session.inter_op.allow_spinning=0\n",
+    "threads": 4,
+    "cases": [
+      {
+        "case": "clean",
+        "repeat": 0,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.3846376549990964,
+        "decode_cpu_seconds": 0.9645583750000001,
+        "settle_cpu_seconds": 1.4728000000019392e-05
+      },
+      {
+        "case": "quiet",
+        "repeat": 0,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.3943319759928272,
+        "decode_cpu_seconds": 0.9904841309999999,
+        "settle_cpu_seconds": 1.3344999999720386e-05
+      },
+      {
+        "case": "noise",
+        "repeat": 0,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.39806114599923603,
+        "decode_cpu_seconds": 0.9890532269999999,
+        "settle_cpu_seconds": 1.4957999999953842e-05
+      },
+      {
+        "case": "long",
+        "repeat": 0,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.519039533995965,
+        "decode_cpu_seconds": 1.311134151,
+        "settle_cpu_seconds": 1.402699999974999e-05
+      },
+      {
+        "case": "silence",
+        "repeat": 0,
+        "text": "you",
+        "decode_seconds": 0.23459651199664222,
+        "decode_cpu_seconds": 0.6659337990000003,
+        "settle_cpu_seconds": 1.4237000000250077e-05
+      },
+      {
+        "case": "short",
+        "repeat": 0,
+        "text": "Go forward.",
+        "decode_seconds": 0.276403363001009,
+        "decode_cpu_seconds": 0.7336765669999998,
+        "settle_cpu_seconds": 1.2574000000320495e-05
+      },
+      {
+        "case": "slower",
+        "repeat": 0,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.3841758279959322,
+        "decode_cpu_seconds": 0.9689118990000001,
+        "settle_cpu_seconds": 1.2063999999867292e-05
+      },
+      {
+        "case": "clean",
+        "repeat": 1,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.3347162939971895,
+        "decode_cpu_seconds": 0.8818209340000003,
+        "settle_cpu_seconds": 1.1450000000579053e-05
+      },
+      {
+        "case": "quiet",
+        "repeat": 1,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.3987783619959373,
+        "decode_cpu_seconds": 1.0074891000000008,
+        "settle_cpu_seconds": 1.3264999999762495e-05
+      },
+      {
+        "case": "noise",
+        "repeat": 1,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.38479917099903105,
+        "decode_cpu_seconds": 0.9726222849999999,
+        "settle_cpu_seconds": 1.3683999998903573e-05
+      },
+      {
+        "case": "long",
+        "repeat": 1,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.48142187100165756,
+        "decode_cpu_seconds": 1.236840475000001,
+        "settle_cpu_seconds": 1.5258999999545608e-05
+      },
+      {
+        "case": "silence",
+        "repeat": 1,
+        "text": "you",
+        "decode_seconds": 0.22188469499815255,
+        "decode_cpu_seconds": 0.6397542739999995,
+        "settle_cpu_seconds": 1.3986000000798526e-05
+      },
+      {
+        "case": "short",
+        "repeat": 1,
+        "text": "Go forward.",
+        "decode_seconds": 0.26243476400122745,
+        "decode_cpu_seconds": 0.7019185300000004,
+        "settle_cpu_seconds": 1.5598999999255625e-05
+      },
+      {
+        "case": "slower",
+        "repeat": 1,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.36571918899426237,
+        "decode_cpu_seconds": 0.9431815290000003,
+        "settle_cpu_seconds": 1.277399999999318e-05
+      },
+      {
+        "case": "clean",
+        "repeat": 2,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.34266566200676607,
+        "decode_cpu_seconds": 0.8934380940000004,
+        "settle_cpu_seconds": 1.3305000001295753e-05
+      },
+      {
+        "case": "quiet",
+        "repeat": 2,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.3816191909936606,
+        "decode_cpu_seconds": 0.9793332759999984,
+        "settle_cpu_seconds": 1.2985000001464186e-05
+      },
+      {
+        "case": "noise",
+        "repeat": 2,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.37600270599796204,
+        "decode_cpu_seconds": 0.9615197820000017,
+        "settle_cpu_seconds": 1.1852000000089902e-05
+      },
+      {
+        "case": "long",
+        "repeat": 2,
+        "text": "Go forward 10 meters.",
+        "decode_seconds": 0.4971281820035074,
+        "decode_cpu_seconds": 1.2622278690000002,
+        "settle_cpu_seconds": 1.4928000002356612e-05
+      },
+      {
+        "case": "silence",
+        "repeat": 2,
+        "text": "you",
+        "decode_seconds": 0.2272607409977354,
+        "decode_cpu_seconds": 0.6429976969999984,
+        "settle_cpu_seconds": 1.199399999762818e-05
+      },
+      {
+        "case": "short",
+        "repeat": 2,
+        "text": "Go forward.",
+        "decode_seconds": 0.2657770579971839,
+        "decode_cpu_seconds": 0.710321087999997,
+        "settle_cpu_seconds": 1.3293999998609252e-05
+      },
+      {
+        "case": "slower",
+        "repeat": 2,
+        "text": "Go forward 10 meters",
+        "decode_seconds": 0.3477719509974122,
+        "decode_cpu_seconds": 0.9046269250000023,
+        "settle_cpu_seconds": 1.1782000001403503e-05
+      }
+    ],
+    "median_decode_ms": 376.00270599796204,
+    "total_cpu_seconds": 19.362126097,
+    "settle_cpu_seconds": 0.0002820900000015669,
+    "peak_rss_mib": 762.23828125
+  }
+}

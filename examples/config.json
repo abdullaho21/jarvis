@@ -1,0 +1,41 @@
+{
+  "activation": {
+    "mode": "wake_word",
+    "wake_phrase": "hey jarvis",
+    "sensitivity": 0.5,
+    "command_timeout": 8,
+    "confidence": 0.35
+  },
+  "audio": {
+    "device": "",
+    "vad_rms": 0.005,
+    "adaptive_gate": true
+  },
+  "recognition": {
+    "backend": "auto",
+    "model_path": "",
+    "closest_match": true,
+    "accurate": true,
+    "noise_suppression": false
+  },
+  "privacy": {
+    "onboarded": false
+  },
+  "aliases": {},
+  "commands": {},
+  "startup": false,
+  "recording": {
+    "output_dir": "~/Videos/Murmur",
+    "monitor": "",
+    "system_audio": false,
+    "microphone": false,
+    "audio_device": "",
+    "fps": 30,
+    "codec": "libx264",
+    "quality": 23,
+    "configured": false,
+    "combined_audio_source": false,
+    "sound_feedback": false,
+    "vaapi_device": "/dev/dri/renderD128"
+  }
+}

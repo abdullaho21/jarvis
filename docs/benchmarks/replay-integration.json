@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "path": "paced PCM capture \u2192 VAD \u2192 command grammar \u2192 confidence gate \u2192 deterministic alias parser \u2192 dry-run dispatcher \u2192 IPC feedback",
+  "elapsed_seconds": 3.2232557110000926,
+  "activation_mode": "push_to_talk",
+  "wake_observed": null,
+  "wake_phrase": null,
+  "seconds_after_last_energy_frame_to_observed_dispatch": 0.3621726380006294,
+  "endpoint_rms_threshold": 0.01,
+  "endpoint_proxy_method": "Final command-fixture frame above fixed RMS threshold, selected before playback; timestamp is emission time plus 30ms frame duration.",
+  "timing_limit": "Synthetic paced replay; waveform energy is not human speech ground truth; 50ms status observation granularity; not live microphone latency.",
+  "fixture_sha256": "f15c60ec54059d8b66e410d0064945a0b0a04ea56e1ddca1958e493c0cf70e71",
+  "microphone_used": false,
+  "desktop_action_executed": false
+}

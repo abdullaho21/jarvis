@@ -1,0 +1,55 @@
+{
+  "measured_at_utc": "2026-10-20T20:03:00.886184+00:00",
+  "scope": "FFmpeg synthetic source generation, encoding and null output; no display/audio capture; excludes compositor and game impact.",
+  "method": "Fresh worker per encoder; getrusage(RUSAGE_CHILDREN) CPU and peak RSS; wall includes initialization and finalization.",
+  "platform": "Linux-7.2.10-1-cachyos-x86_64-with-glibc2.44",
+  "logical_cpus": 16,
+  "ffmpeg": "ffmpeg version n9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+  "input": {
+    "size": "1280x720",
+    "fps": 30,
+    "seconds": 10.0,
+    "realtime_paced": true,
+    "quality": 23
+  },
+  "measurements": [
+    {
+      "codec": "libx264",
+      "ok": true,
+      "returncode": 0,
+      "wall_seconds": 9.5661,
+      "cpu_seconds": 0.8307,
+      "average_cpu_percent_one_logical_cpu": 8.68,
+      "peak_rss_mib": 80.95,
+      "error": null,
+      "command": [
+        "/usr/bin/ffmpeg",
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-re",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=1280x720:rate=30",
+        "-t",
+        "10.0",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "23",
+        "-threads",
+        "2",
+        "-pix_fmt",
+        "yuv420p",
+        "-f",
+        "null",
+        "-"
+      ]
+    }
+  ]
+}

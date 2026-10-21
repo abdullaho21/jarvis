@@ -1,0 +1,27 @@
+{
+  "duration_seconds": 30.000015386001905,
+  "cpu_seconds": 0.060000000000000026,
+  "cpu_percent_one_logical_core": 0.19999989742670665,
+  "logical_cpus": 16,
+  "percent_total_machine_capacity": 0.012499993589169166,
+  "processes": [
+    {
+      "role": "daemon",
+      "cpu_seconds": 0.0,
+      "rss_mib": 27.51953125
+    },
+    {
+      "role": "voice",
+      "cpu_seconds": 0.040000000000000036,
+      "rss_mib": 600.71484375
+    },
+    {
+      "role": "capture",
+      "cpu_seconds": 0.01999999999999999,
+      "rss_mib": 8.90234375
+    }
+  ],
+  "engine": "vosk+whisper-small",
+  "final_state": "idle",
+  "scope": "Existing service after CPU tuning; microphone already active; natural room conditions; no audio/transcripts saved; one 30-second sample"
+}

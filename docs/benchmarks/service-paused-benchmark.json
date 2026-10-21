@@ -1,0 +1,15 @@
+{
+  "mode": "paused",
+  "duration_seconds": 15.188788523999392,
+  "cpu_seconds": 0,
+  "cpu_percent_one_logical_core": 0.0,
+  "peak_tree_rss_mib": 26.953125,
+  "mean_tree_rss_mib": 26.953125,
+  "peak_process_count": 1,
+  "status": "paused",
+  "python": "3.14.8",
+  "kernel": "7.2.10-1-cachyos",
+  "scope": "Whole service, speech worker and pw-record tree; UI included only in ui mode. Sum RSS double-counts shared pages. Warm-up excluded. Actions disabled. No audio saved.",
+  "live_microphone": false,
+  "voice_gpu_compute": "none by implementation; CPU-only PocketSphinx"
+}

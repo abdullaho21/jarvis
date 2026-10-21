@@ -1,0 +1,19 @@
+{
+  "monitors_discovered": 2,
+  "apps_discovered": 85,
+  "gio_desktop_launch": "passed",
+  "recording": {
+    "state": "idle",
+    "bytes": 1666907,
+    "requested_seconds": 3.0,
+    "audio": false,
+    "finalized_and_ffprobe_validated": true,
+    "focus_unchanged": true,
+    "lifecycle_wall_seconds": 3.061038825999276,
+    "cpu_percent_one_logical_core": 196.21302902093345,
+    "peak_child_rss_mib": 211.828125,
+    "resource_scope": "Test subprocesses (wf-recorder, hyprctl, ffprobe), lifecycle including startup/finalization; excludes compositor, game and shared audio service. Static/changing desktop, no controlled game.",
+    "test_video_deleted": true,
+    "limitation": "Structural video validation; no visual content, gaming FPS or permission persistence claim."
+  }
+}

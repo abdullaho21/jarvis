@@ -1,0 +1,15 @@
+{
+  "monitors_discovered": 2,
+  "apps_discovered": 85,
+  "gio_desktop_launch": "passed",
+  "recording": {
+    "state": "idle",
+    "bytes": 2303467,
+    "requested_seconds": 3.0,
+    "audio": false,
+    "finalized_and_ffprobe_validated": true,
+    "focus_unchanged": false,
+    "test_video_deleted": true,
+    "limitation": "Structural video validation; no visual content, gaming FPS or permission persistence claim."
+  }
+}

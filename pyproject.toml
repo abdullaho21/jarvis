@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-hyprland"
+version = "0.1.0"
+description = "Local, event-driven voice controls for Hyprland"
+requires-python = ">=3.11"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["hyprland", "linux", "voice-control", "offline", "accessibility"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications :: GTK",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Desktop Environment",
+]
+dependencies = []
+
+[project.optional-dependencies]
+# PocketSphinx is the small fallback; Vosk is the default once its model is installed.
+voice = ["pocketsphinx==5.1.1", "vosk==0.3.45", "sherpa-onnx==1.13.8"]
+benchmark = ["psutil>=6,<8"]
+
+[project.scripts]
+jarvis = "murmur.cli:main"
+murmur = "murmur.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["murmur*"]
+
+[tool.setuptools.package-data]
+murmur = ["style.css", "onnx-cpu.conf"]

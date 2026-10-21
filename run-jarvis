@@ -1,0 +1,18 @@
+#!/bin/sh
+# Launch Jarvis from this checkout (after the README one-time setup).
+# Works through symlinks, e.g. ln -s "$PWD/run-murmur" ~/.local/bin/murmur
+set -eu
+MURMUR_ROOT=$(dirname -- "$(readlink -f -- "$0")")
+py="$MURMUR_ROOT/.venv/bin/python"
+rebuild="cd \"$MURMUR_ROOT\" && rm -rf .venv && python3 -m venv --system-site-packages .venv && .venv/bin/python -m pip install -e '.[voice]'"
+if [ ! -x "$py" ]; then
+    echo "run-jarvis: no virtual environment at $MURMUR_ROOT/.venv. See README 'One-time setup'." >&2
+    exit 127
+fi
+# A distro Python upgrade leaves the venv's packages under the old version.
+if ! "$py" -c 'import murmur' 2>/dev/null; then
+    echo "run-jarvis: the virtual environment cannot import murmur (often after a Python upgrade). Rebuild it:" >&2
+    echo "  $rebuild" >&2
+    exit 1
+fi
+exec "$py" -m murmur "$@"

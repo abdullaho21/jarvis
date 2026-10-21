@@ -1,0 +1,25 @@
+{
+  "duration_seconds": 30.00001240400161,
+  "cpu_seconds": 0.18000000000000016,
+  "cpu_percent_one_logical_core": 0.5999997519200709,
+  "logical_cpus": 16,
+  "percent_total_machine_capacity": 0.03749998449500443,
+  "processes": [
+    {
+      "role": "daemon",
+      "cpu_seconds": 0.0,
+      "rss_mib": 27.51953125
+    },
+    {
+      "role": "voice",
+      "cpu_seconds": 0.16000000000000014,
+      "rss_mib": 604.9140625
+    },
+    {
+      "role": "capture",
+      "cpu_seconds": 0.020000000000000018,
+      "rss_mib": 8.91015625
+    }
+  ],
+  "scope": "Existing background service; microphone already active; no audio/transcripts saved; natural room conditions; one 30-second sample"
+}
