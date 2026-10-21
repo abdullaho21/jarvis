@@ -41,6 +41,16 @@ for i in range(0,len(data),960):
         last_energy=i
 if last_energy is None:
     raise RuntimeError('No command energy above the endpoint proxy threshold')
+# Wait for the status observer so even delayed subscription sees the wake.
+ready=Path(os.environ['MURMUR_PLAYBACK_READY'])
+until=time.monotonic()+15
+while not ready.exists():
+    if time.monotonic()>until:
+        raise RuntimeError('Status observer did not release fixture playback')
+    # Keep the fake microphone alive while speech playback is gated.
+    sys.stdout.buffer.write(bytes(960))
+    sys.stdout.buffer.flush()
+    time.sleep(.03)
 for i in range(0,len(data),960):
     emitted=time.monotonic()
     sys.stdout.buffer.write(data[i:i+960].ljust(960,b'\\0'))
@@ -87,6 +97,7 @@ def main():
                    MURMUR_SOCKET=str(base / "ipc/control.sock"), MURMUR_DRY_RUN="1",
                    MURMUR_FIXTURE=str(base / "input.raw"),
                    MURMUR_COMMAND_START=str(len(prefix)), MURMUR_ENDPOINT_RMS=str(args.endpoint_rms),
+                   MURMUR_PLAYBACK_READY=str(base / "playback-ready"),
                    MURMUR_SPEECH_END=str(base / "speech-end.txt"))
         env["PATH"] = str(base) + os.pathsep + env["PATH"]
         env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
@@ -128,6 +139,7 @@ def main():
                     event = json.loads(line)
                     if not event.get("ok"):
                         raise RuntimeError(event.get("error", "Replay status failed"))
+                    (base / "playback-ready").touch(exist_ok=True)
                     status = event["status"]
                     if status["message"] == "Listening · say one command":
                         wake_observed = True
