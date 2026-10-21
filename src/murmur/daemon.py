@@ -21,6 +21,7 @@ from .client import socket_path
 from .commands import REFERENCE, CommandError, Parser, normalize
 from .hyprland import Hyprland
 from .recorder import Recorder, audio_sources
+from .replay import Replay
 from .state import Activation
 from .desktop_process import desktop_argv
 
@@ -34,10 +35,13 @@ class Service:
         self.activation = Activation(a["command_timeout"], a["confidence"])
         self.desktop = Hyprland()
         self.recorder = Recorder(self.config, self.recording_changed)
+        self.replay = Replay(self.config, lambda status: self.loop and self.loop.call_soon_threadsafe(self.on_replay_changed, status))
+        self.last_replay_file = None
         self.muted = not self.config["privacy"]["onboarded"]
         self.message = "Complete first-run microphone consent in Settings" if self.muted else "Starting voice control"
         self.worker = self.voice_task = None
         self.worker_mode = None
+        self.unanswered = None   # listen/cancel lines the worker hasn't answered; None until it's ready
         self.watchers = set()
         self.loop = None
         self.level = 0
@@ -51,11 +55,12 @@ class Service:
                                 or importlib.util.find_spec("vosk") is not None)
         self.engine = None
         self.gate = None
-        self.dispatcher = Dispatcher(self.apps, self.desktop, self.recorder, self.pause_from_action, self.open_ui)
+        self.dispatcher = Dispatcher(self.apps, self.desktop, self.recorder, self.pause_from_action, self.open_ui,
+                                     replay=self.replay)
 
     def status(self):
         return {"state": self.activation.state, "message": self.message, "muted": self.muted,
-                "recording": self.recorder.status(), "level": self.level,
+                "recording": self.recorder.status(), "replay": self.replay.status(), "level": self.level,
                 "voice_available": self.voice_available,
                 "unsupported_phrases": self.unsupported, "engine": self.engine, "gate": self.gate,
                 "dry_run": os.environ.get("MURMUR_DRY_RUN") == "1",
@@ -111,6 +116,13 @@ class Service:
         self.last_recording_state = state
         self.publish()
 
+    def on_replay_changed(self, status):
+        if status["file"] and status["file"] != self.last_replay_file and self.config["replay"]["sound"]:
+            from .feedback import play
+            self.background(asyncio.to_thread(play, "clip"), "replay sound")
+        self.last_replay_file = status["file"]
+        self.publish()
+
     def pause_from_action(self):
         self.loop.call_soon_threadsafe(lambda: self.background(self.set_mute(True), "mute"))
 
@@ -127,7 +139,7 @@ class Service:
 
     async def _stop_worker_locked(self):
         proc = self.worker
-        self.worker = None
+        self.worker = self.unanswered = None
         if proc and proc.returncode is None:
             proc.terminate()
             try:
@@ -169,9 +181,27 @@ class Service:
                 return
             self.worker.stdin.write(encoded)
             await self.worker.stdin.drain()
-            self.worker.stdin.close()
+            if mode != "wake_word":   # only a wake worker takes listen/cancel lines
+                self.worker.stdin.close()
             self.voice_task = asyncio.create_task(self.read_voice(self.worker, mode))
             self.publish()
+
+    async def steer_worker(self, line: bytes) -> bool:
+        """Start (b"listen") or drop (b"cancel") a command session in the ready
+        wake worker, keeping its models loaded. False if there is none to steer."""
+        async with self.worker_lock:
+            proc = self.worker
+            if (proc is None or self.worker_mode != "wake_word" or self.unanswered is None
+                    or self.muted or self.activation.state == "error"):
+                return False
+            self.activation.arm()   # nothing heard before this line may run
+            self.unanswered += 1
+            try:
+                proc.stdin.write(line + b"\n")
+                await proc.stdin.drain()
+            except (BrokenPipeError, ConnectionResetError):
+                return False   # it just exited; the caller starts a new one
+            return True
 
     async def read_voice(self, proc, mode):
         try:
@@ -180,9 +210,12 @@ class Service:
                 if self.worker is not proc:
                     return
                 kind = event["event"]
+                if self.unanswered and kind in ("wake", "command", "heard", "timeout"):
+                    continue   # from the session that a listen or cancel line replaced
                 if kind == "loading":
                     self.message = event["message"]
                 elif kind == "ready":
+                    self.unanswered = 0 if self.unanswered is None else self.unanswered - 1
                     self.unsupported = event.get("unsupported", [])
                     self.engine = event.get("engine")
                     self.activation.arm()
@@ -260,6 +293,7 @@ class Service:
 
     async def execute(self, phrase):
         async with self.action_lock:
+            intent = None
             try:
                 intent = self.parser.parse(phrase)
                 if os.environ.get("MURMUR_DRY_RUN") == "1":
@@ -267,6 +301,9 @@ class Service:
                 else:
                     self.message = await asyncio.to_thread(self.dispatcher.execute, intent)
             except (CommandError, RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+                if intent and intent.action == "replay_save" and self.config["replay"]["sound"]:
+                    from .feedback import play
+                    self.background(asyncio.to_thread(play, "error"), "replay sound")
                 self.message = str(exc)
                 self.publish()
                 return {"ok": False, "error": str(exc)}
@@ -301,14 +338,16 @@ class Service:
         if op == "mute":
             await self.set_mute(payload["muted"])
         elif op == "listen":
-            await self.start_worker("once")
+            if not await self.steer_worker(b"listen"):
+                await self.start_worker("once")
         elif op == "cancel":
-            await self.stop_worker()
-            self.activation.pause()
-            if not self.muted and self.config["activation"]["mode"] == "wake_word":
-                await self.start_worker("wake_word")
-            else:
-                self.message = "Cancelled · microphone closed"
+            if not await self.steer_worker(b"cancel"):
+                await self.stop_worker()
+                self.activation.pause()
+                if not self.muted and self.config["activation"]["mode"] == "wake_word":
+                    await self.start_worker("wake_word")
+                else:
+                    self.message = "Cancelled · microphone closed"
         elif op == "mic_test":
             if payload.get("enabled"):
                 await self.start_worker("test")
@@ -323,12 +362,17 @@ class Service:
             Parser(c["commands"])
             if self.recorder.status()["state"] in ("recording", "stopping") and c["recording"] != self.config["recording"]:
                 raise CommandError("Stop recording before changing capture settings")
+            if self.replay.status()["state"] in ("on", "stopping") and (
+                    c["recording"] != self.config["recording"] or any(
+                        c["replay"][key] != self.config["replay"][key]
+                        for key in ("seconds", "game_audio", "microphone"))):
+                raise CommandError("Stop instant replay before changing capture settings")
             was_onboarded = self.config["privacy"]["onboarded"]
             self.config = await asyncio.to_thread(configuration.save, c)
             self.parser = Parser(c["commands"])
             self.apps = await asyncio.to_thread(AppRegistry, c["aliases"])
             self.dispatcher.apps = self.apps
-            self.recorder.config = self.config
+            self.recorder.config = self.replay.config = self.config
             a = c["activation"]
             self.activation.timeout, self.activation.confidence = a["command_timeout"], a["confidence"]
             if not c["privacy"]["onboarded"]:
@@ -336,6 +380,8 @@ class Service:
             else:
                 await self.set_mute(self.muted if was_onboarded else False)
             return {"ok": True, "config": self.config}
+        elif op in ("replay_start", "replay_stop", "replay_save"):
+            return await self.execute(op.removeprefix("replay_") + " replay")
         elif op in ("record_start", "record_stop"):
             return await self.execute("start recording" if op == "record_start" else "stop recording")
         elif op == "execute":
@@ -438,6 +484,11 @@ async def serve():
             await asyncio.to_thread(service.recorder.inspect_previous)
         except OSError as exc:
             print(f"murmur: could not inspect earlier recordings: {exc}", file=sys.stderr)
+        if service.config["replay"]["autostart"]:
+            try:
+                await asyncio.to_thread(service.replay.start)
+            except RuntimeError as exc:   # shown in status; the service keeps running
+                print(f"murmur: instant replay did not start: {exc}", file=sys.stderr)
         if not service.muted:
             # A voice failure must not take the whole service down (and into a
             # systemd restart loop); show it and wait for the user instead.
@@ -451,6 +502,7 @@ async def serve():
     finally:
         await service.set_mute(True)
         try:
+            await asyncio.to_thread(service.replay.close)
             await asyncio.to_thread(service.recorder.close)
         finally:
             path.unlink(missing_ok=True)

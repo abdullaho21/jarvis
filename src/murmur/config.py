@@ -26,9 +26,12 @@ DEFAULTS = {
     "aliases": {}, "commands": {}, "startup": False,
     "recording": {"output_dir": "~/Videos/Murmur", "monitor": "", "system_audio": False,
                   "microphone": False, "audio_device": "", "fps": 30,
-                  "codec": "libx264", "quality": 23, "configured": False,
+                  "codec": "libx264", "quality": 23, "configured": False, "color_mode": "auto",
                   "combined_audio_source": False, "sound_feedback": False,
                   "vaapi_device": "/dev/dri/renderD128"},
+    # Instant replay keeps the last `seconds` in RAM (gpu-screen-recorder); off until started.
+    # game_audio/microphone mix the default output and input into one track; sound chirps on save.
+    "replay": {"seconds": 120, "autostart": False, "game_audio": True, "microphone": True, "sound": True},
 }
 # Sections that existed in earlier versions and are now ignored.
 LEGACY_SECTIONS: tuple[str, ...] = ()
@@ -83,7 +86,7 @@ def validate(data: dict) -> dict:
     if unknown:
         raise ValueError("Unknown setting(s): " + ", ".join(sorted(unknown)[:5]))
     c = merged(DEFAULTS, {k: v for k, v in data.items() if k not in LEGACY_SECTIONS})
-    for key in ("activation", "audio", "recognition", "privacy", "recording", "aliases", "commands"):
+    for key in ("activation", "audio", "recognition", "privacy", "recording", "replay", "aliases", "commands"):
         if not isinstance(c[key], dict):
             raise ValueError(f"{key} must be an object")
     a = c["activation"]
@@ -128,6 +131,8 @@ def validate(data: dict) -> dict:
         if not isinstance(value, bool):
             raise ValueError("Consent, startup and recording flags must be booleans")
     r = c["recording"]
+    if r["color_mode"] not in ("auto", "hdr", "sdr"):
+        raise ValueError("Capture color mode must be auto, hdr or sdr")
     if type(r["fps"]) is not int or not 1 <= r["fps"] <= 60:
         raise ValueError("Recording fps must be 1–60")
     if type(r["quality"]) is not int or not 0 <= r["quality"] <= 51:
@@ -140,6 +145,10 @@ def validate(data: dict) -> dict:
     for key in ("output_dir", "monitor", "audio_device"):
         if not isinstance(r[key], str) or len(r[key]) > 4096 or "\0" in r[key]:
             raise ValueError(f"Invalid recording {key}")
+    if type(c["replay"]["seconds"]) is not int or not 10 <= c["replay"]["seconds"] <= 600:
+        raise ValueError("Replay length must be 10–600 seconds")
+    if not all(isinstance(c["replay"][key], bool) for key in ("autostart", "game_audio", "microphone", "sound")):
+        raise ValueError("Replay switches must be true or false")
     if r["system_audio"] and r["microphone"] and not (r["combined_audio_source"] and r["audio_device"].strip()):
         raise ValueError("wf-recorder accepts one audio source. Set up a combined PipeWire source first.")
     if len(json.dumps(c, allow_nan=False).encode()) > 60000:

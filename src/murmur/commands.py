@@ -41,6 +41,7 @@ FIXED = {
     "turn the sound back on": Intent("volume_unmute"),
     "start recording": Intent("record_start"), "stop recording": Intent("record_stop"),
     "open the video recorder": Intent("open_recorder"), "open video recorder": Intent("open_recorder"),
+    "save replay": Intent("replay_save"), "start replay": Intent("replay_start"), "stop replay": Intent("replay_stop"),
     "stop listening": Intent("pause"), "cancel": Intent("cancel"),
 }
 
@@ -63,6 +64,10 @@ VARIANTS = {
     "make this full screen": "make this window full screen", "go full screen": "make this window full screen",
     "leave full screen": "exit full screen", "stop listening to me": "stop listening",
     "pause listening": "stop listening", "cancel that": "cancel", "never mind": "cancel",
+    "clip that": "save replay", "save that": "save replay", "save the replay": "save replay",
+    "save a replay": "save replay", "start instant replay": "start replay",
+    "turn on instant replay": "start replay", "stop instant replay": "stop replay",
+    "turn off instant replay": "stop replay",
 }
 
 # Optional sentence-edge courtesy. The parser accepts both; the speech grammar
@@ -114,6 +119,7 @@ REFERENCE = [
     {"category": "Windows", "title": "Fullscreen", "examples": ["make this window fullscreen", "exit fullscreen"]},
     {"category": "Audio", "title": "Volume", "examples": ["turn the volume down", "turn down the volume", "turn the volume up", "mute volume", "turn the sound back on"]},
     {"category": "Recording", "title": "Capture your screen", "examples": ["start recording", "stop recording", "open the video recorder"]},
+    {"category": "Recording", "title": "Instant replay", "examples": ["clip that", "save replay", "start replay", "stop replay"]},
     {"category": "Privacy", "title": "Stop immediately", "examples": ["stop listening", "cancel"]},
 ]
 

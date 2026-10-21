@@ -9,7 +9,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from murmur.recorder import Recorder, RecorderError, sources
+from murmur.recorder import Recorder, RecorderError, sources, verify_video
 
 
 class FakeProcess:
@@ -19,7 +19,7 @@ class FakeProcess:
         self.code = 7 if crash else 0
         self.exited = threading.Event()
         self.signals = []
-        self.path = Path(argv[argv.index("--file") + 1])
+        self.path = Path(argv[argv.index("--file" if "--file" in argv else "-o") + 1])
         if not empty:
             self.path.write_bytes(b"test-video")
         if crash:
@@ -125,6 +125,55 @@ class RecorderTests(unittest.TestCase):
         self.assertIn("qp=23", argv)
         self.assertIn("/dev/dri/renderD128", argv)
 
+    def test_hdr_recording_uses_gpu_backend_and_verifies_before_publishing(self):
+        probe = {"streams": [{"codec_type": "video", "width": 1920, "height": 1080,
+                              "pix_fmt": "yuv420p10le", "color_transfer": "smpte2084",
+                              "color_space": "bt2020nc", "color_primaries": "bt2020", "color_range": "tv"}]}
+        children = []
+        def spawn(argv, **kwargs):
+            children.append(FakeProcess(argv, **kwargs))
+            return children[-1]
+        with patch("murmur.recorder.sources", return_value=[{"name": "DP-1", "colorManagementPreset": "hdr"}]), \
+                patch("murmur.recorder._query", return_value=json.dumps(probe)), \
+                patch("murmur.recorder.subprocess.Popen", side_effect=spawn):
+            recorder = Recorder(self.config)
+            initial = recorder.start()
+            self.assertIn("HDR", initial["message"])
+            argv = children[0].argv
+            self.assertIn("/usr/bin/gpu-screen-recorder", argv)
+            self.assertEqual(argv[argv.index("-k") + 1], "hevc_hdr")
+            self.assertEqual(argv[argv.index("-c") + 1], "mkv")
+            self.assertEqual(argv[argv.index("-w") + 1], "DP-1")
+            self.assertNotIn("--pixel-format", argv)
+            self.assertEqual(recorder.stop()["state"], "idle")
+            self.assertFalse(Path(initial["file"]).exists())
+
+    def test_hdr_silent_sdr_fallback_is_retained_as_partial(self):
+        self.config["color_mode"] = "hdr"
+        with patch("murmur.recorder.subprocess.Popen", side_effect=FakeProcess):
+            recorder = Recorder(self.config)
+            initial = recorder.start()
+            with self.assertRaisesRegex(RecorderError, "HDR verification failed"):
+                recorder.stop()
+            self.assertTrue(Path(initial["file"]).exists())
+            self.assertEqual(list(Path(self.directory.name).glob("Murmur_*.mkv")), [])
+
+    def test_hdr_recording_preserves_explicit_audio_source(self):
+        self.config.update(color_mode="hdr", system_audio=True, audio_device="game.monitor")
+        with patch("murmur.recorder.audio_sources", return_value=[{"name": "game.monitor", "monitor": True}]):
+            _, _, argv = Recorder(self.config)._validate()
+        self.assertEqual(argv[argv.index("-a") + 1], "game.monitor")
+        self.assertNotIn("default_input", argv)
+
+    def test_missing_hdr_backend_never_falls_back_to_sdr(self):
+        self.config["color_mode"] = "hdr"
+        with patch("murmur.recorder.shutil.which", side_effect=lambda name: None if name == "gpu-screen-recorder" else "/usr/bin/" + name), \
+                patch("murmur.recorder.subprocess.Popen") as spawn:
+            with self.assertRaisesRegex(RecorderError, "gpu-screen-recorder is missing"):
+                Recorder(self.config).start()
+            spawn.assert_not_called()
+        self.assertEqual(list(Path(self.directory.name).iterdir()), [])
+
     def test_clean_exit_with_empty_file_is_error(self):
         with patch("murmur.recorder.subprocess.Popen", side_effect=lambda a, **kw: FakeProcess(a, empty=True, **kw)):
             recorder = Recorder(self.config)
@@ -158,12 +207,11 @@ class RecorderTests(unittest.TestCase):
                 Recorder(self.config).start()
 
     def test_output_validation_requires_video_stream(self):
-        recorder = Recorder(self.config)
         path = Path(self.directory.name) / "test.mkv"
         path.write_bytes(b"audio-only")
         with patch("murmur.recorder._query", return_value='{"streams":[{"codec_type":"audio"}]}'):
             with self.assertRaisesRegex(RecorderError, "no valid video"):
-                recorder._verify(path)
+                verify_video(path)
 
     def test_callback_failure_does_not_orphan_capture(self):
         def broken_callback(_status):

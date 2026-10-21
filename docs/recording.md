@@ -1,6 +1,6 @@
 # Recording without leaving a game
 
-Jarvis uses the installed `wf-recorder` executable. Opening recording settings and starting capture are separate actions. The start action launches no window, portal, region selector, or terminal; it names the configured monitor explicitly and disconnects standard input. A compositor permission prompt is still possible if permission has not been established. Complete and test setup outside a game first.
+Jarvis uses `wf-recorder` for SDR recording and `gpu-screen-recorder` for HDR recording and instant replay. Opening recording settings and starting capture are separate actions. The start action launches no window, portal, region selector, or terminal; it names the configured monitor explicitly and disconnects standard input. A compositor permission prompt is still possible if permission has not been established. Complete and test setup outside a game first.
 
 The desktop controls are the normal route. For integration checks with the daemon already running, use `murmur ui --page recording` to open setup, `murmur record start` to capture, and `murmur record stop` to save. `murmur config` shows the current settings. In a source checkout, prefix the equivalent invocations with `PYTHONPATH=src .venv/bin/python -m murmur`.
 
@@ -9,7 +9,7 @@ The desktop controls are the normal route. For integration checks with the daemo
 | Approach | License and maintenance evidence checked 2026-10-20 | Resource and permission tradeoff | Decision |
 | --- | --- | --- | --- |
 | [wf-recorder](https://github.com/ammen99/wf-recorder) | MIT; upstream commits visible in 2026; installed version 0.6.0 | Direct Wayland screencopy; CPU encoding or optional VA-API. No portal source picker when an output is named, but compositor permission rules apply. | Implemented: already installed, small subprocess interface, no new privileged helper. |
-| [GPU Screen Recorder](https://git.dec05eba.com/gpu-screen-recorder/about/) | GPL-3.0-only; maintained upstream with current CLI, signals and Unix-socket control | Hardware capture/encoding suits gaming, but monitor capture uses a privileged KMS helper. Portal capture avoids that helper and may require source selection. Its low-overhead claims are upstream claims, not Jarvis measurements. | Evaluated, not implemented or installed. |
+| [GPU Screen Recorder](https://git.dec05eba.com/gpu-screen-recorder/about/) | GPL-3.0-only; maintained upstream with current CLI, signals and Unix-socket control | Hardware capture/encoding suits gaming, but monitor capture uses a privileged KMS helper. Portal capture avoids that helper and may require source selection. Its low-overhead claims are upstream claims, not Jarvis measurements. | Used for HDR recording and [instant replay](#instant-replay) (optional package). |
 | [ScreenCast portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html) | Interface provided by the desktop's installed portal implementation | Normally presents source/permission UI. Persistence depends on the backend and permission grant; restore tokens rotate after each successful session. Missing sources or revoked permission can cause another prompt. | No generic promise of unattended capture; no portal backend in this release. |
 
 The capture backend performs video encoding; it is independent of speech recognition. Choosing VA-API deliberately uses the GPU's media engine and may also use graphics copies/conversion. The default voice path still performs no GPU inference.
@@ -53,9 +53,29 @@ Review that grant before adding it: it allows the named recorder to capture with
 
 The CPU preset uses H.264, `preset=ultrafast`, two encoder threads, 30 fps, CRF 23 and Matroska. These are engineering choices to limit encoding work, not measured promises of gaming impact. It records the selected monitor at its native dimensions. `quality` is CRF 0–51 for libx264; lower values increase quality and file size. `ultrafast` can produce large files.
 
-The optional hardware preset uses `codec: "h264_vaapi"`, `vaapi_device: "/dev/dri/renderD128"`, 30 fps, and `quality` as the encoder's QP value. Choose the correct render device; a multi-GPU machine may expose several. Device visibility and an FFmpeg encoder listing do not prove the driver can encode successfully. Perform a test clip before gaming. HDR preservation and tone mapping are outside this preset: the output is SDR H.264/yuv420p, and HDR monitors need explicit visual verification.
+The optional SDR hardware preset uses `codec: "h264_vaapi"`, `vaapi_device: "/dev/dri/renderD128"`, 30 fps, and `quality` as the encoder's QP value. Choose the correct render device; a multi-GPU machine may expose several. Device visibility and an FFmpeg encoder listing do not prove the driver can encode successfully. Perform a test clip before gaming. HDR uses the separate path below.
 
 `--framerate 30` asks wf-recorder for constant-frame-rate output. Its default compositor damage handling remains enabled; no extra rendering timer runs in the voice daemon. Measure both the recorder child and the compositor/game, since a frame-rate setting alone does not establish capture cost.
+
+## HDR recording and replay
+
+**Color / HDR** in Recorder applies to both recording and instant replay, through `recording.color_mode`:
+
+- **Automatic** (`auto`, the default for existing configurations): read the selected monitor's `colorManagementPreset` from `hyprctl -j monitors` at capture start. `hdr` and `hdredid` select HDR; SDR and missing presets retain the SDR path. A 10-bit pixel format or HDR-capable display alone does not establish active HDR.
+- **Preserve HDR** (`hdr`): explicitly request HDR, including on older Hyprland versions without the preset field or when fullscreen HDR passthrough is in use. Enable HDR on the display first.
+- **SDR** (`sdr`): use SDR capture. If the monitor reports an HDR preset, starting fails with instructions to select HDR or disable display HDR. Jarvis does not tone map direct monitor capture into SDR.
+
+HDR uses GPU Screen Recorder's `-k hevc_hdr`, limited color range, GPU encoding without CPU fallback, and its default `very_high` quality. The backend handles pixel conversion and HDR metadata; changing only output color tags would not preserve HDR. Recordings remain Matroska with private staging files, SIGINT finalization and recovery; replays remain MP4 in RAM until saved. The software/VA-API encoder, quality and render-device settings apply to SDR recording only. HDR recording still uses the explicitly selected recording audio source; replay uses its own game/microphone switches.
+
+`ffprobe` checks HDR output for a valid 10-bit video stream with PQ (`smpte2084`), BT.2020 primaries and matrix, and limited range before reporting success. An unsupported encoder, missing metadata or silent SDR fallback is an error; recording partials and replay files are retained for inspection. Structural verification does not prove visual color accuracy or permission success.
+
+Restart recording/replay after changing display color mode. Detection is a snapshot at start; it does not follow fullscreen or display HDR changes during a running buffer. Use Preserve HDR before starting a session intended for fullscreen HDR. HDR needs a GPU/driver with HEVC 10-bit encoding, a compatible monitor-capture backend and GPU Screen Recorder's installed KMS helper. Both recording and replay can run simultaneously, but use separate encoder sessions.
+
+The built-in GTK player may not support HDR output or tone mapping. Use **Open in your player** with an HDR-aware player/display, or enable the player's HDR-to-SDR tone mapping for an SDR display. A washed-out preview alone does not establish that the saved video lost HDR.
+
+The [GPU Screen Recorder documentation](https://git.dec05eba.com/gpu-screen-recorder/about/) and installed man page document HEVC HDR capture and its Wayland monitor requirements. [Hyprland's color documentation](https://wiki.hypr.land/configuring/core/monitors/colors/) distinguishes HDR PQ presets from wide-gamut SDR and describes fullscreen HDR switching.
+
+Verified on 2026-10-21: automatic mode on DP-3 (`colorManagementPreset: hdr`) produced both a 2.90-second recording and a 2.87-second replay at 2560×1440. Both finalized successfully and passed `ffprobe` as HEVC, `yuv420p10le`, limited range, `bt2020nc` / `smpte2084` / `bt2020`. Audio was disabled and both temporary videos were removed. This establishes capture and color metadata integration, not visual HDR accuracy, audio synchronization or gaming performance.
 
 ## Ownership, stop and recovery
 
@@ -115,3 +135,17 @@ for VA-API on renderD128. These are separate from voice costs and do not measure
 compositor/game impact. See [performance results](performance.md) and the raw
 [VA-API check](benchmarks/desktop-vaapi-integration.json). No post-reboot unattended-capture,
 visual-content, audio-sync or game frame-time guarantee is established.
+
+## Instant replay
+
+Instant replay keeps the last seconds of the selected display, plus game sound and your microphone, in memory and saves them only when asked. It follows [Kairos](https://github.com/BasilForge/Kairos)'s instant-replay idea on Linux; no Kairos code is used. It needs the optional `gpu-screen-recorder` package (`sudo pacman -S gpu-screen-recorder`); Jarvis runs it as a separate program, so Jarvis's own MIT license is unaffected.
+
+- **Off until you start it:** the Recorder page's **Start replay**, “start replay”, or `jarvis replay start`. **Start with Jarvis** turns it on whenever the service starts. The header shows **Replay on** and Waybar shows ⟲ while the buffer runs.
+- **Save:** “clip that”, “save that”, “save replay”, the **Save replay** button or `jarvis replay save` writes the buffered seconds to the recordings folder as an MP4 and checks it with `ffprobe`. Nothing reaches the disk before that.
+- **Stop:** “stop replay”, the button, `jarvis replay stop`, service shutdown or a service crash (parent-death SIGINT) end the child and discard the buffer.
+- **Sound:** **Game sound** records the default output (everything you hear) and **Microphone** the default input; both are on by default and mixed into one track. They follow your PipeWire default devices.
+- **Clip sound:** a short rising chirp confirms each saved clip and a low tone reports a failed save; **Clip sound** turns it off.
+- **Settings:** replay length is 10–600 seconds (default 120) and uses the Recorder display, color mode and folder. Stop replay before changing capture settings, including Game sound and Microphone; they apply when the buffer starts. Clip sound and Start with Jarvis can change while replay runs.
+- **Watch:** the **Clips** page lists saved replays and recordings, newest first, and plays them in the window. Playing MP4 there needs `gst-plugins-good` (`sudo pacman -S gst-plugins-good`); **Open in your player** works without it. The player is created on the first Play and released when you close it or leave the page.
+- **Cost (measured 2026-10-21, gpu-screen-recorder 6.1.4, 2560×1440 at 30 fps, H.264 on the GPU):** the recorder used 48 MiB PSS (115 MiB RSS) and 0.7% of one CPU core while buffering a mostly still desktop; a save took 0.09 s. The buffered video adds to that and grows with motion, resolution and frame rate: the still desktop produced about 0.33 MB/s (≈40 MB per two minutes); fast game footage needs several times more.
+- **Permissions:** monitor capture goes through gpu-screen-recorder's privileged KMS helper (`gsr-kms-server`) installed by the package. Review that before enabling replay.

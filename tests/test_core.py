@@ -2,10 +2,12 @@
 
 import asyncio
 import copy
+import json
 from pathlib import Path
 import signal
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -281,6 +283,17 @@ class FakeWorker:
         await self.done.wait()
         return self.returncode
 
+    def send(self, **event):
+        self.stdout.feed_data((json.dumps(event) + "\n").encode())
+
+
+async def until(condition):
+    for _ in range(50):
+        if condition():
+            return
+        await asyncio.sleep(0)
+    raise AssertionError("The service did not handle the worker's events")
+
 
 class ServiceConsentTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -418,6 +431,69 @@ class ServiceConsentTests(unittest.IsolatedAsyncioTestCase):
                 await service.handle({"op": "mic_test", "enabled": False})
                 self.assertIs(service.worker, wake, "Stopping a finished test reloaded wake capture")
                 self.assertFalse(wake.terminated)
+            finally:
+                await service.stop_worker()
+
+    async def ready_wake_worker(self, service, workers):
+        service.config["activation"]["mode"] = "wake_word"
+        await service.start_worker("wake_word")
+        workers[0].send(event="ready", listening=False, deadline=None)
+        await until(lambda: service.activation.state == "idle")
+        return workers[0]
+
+    async def test_listen_starts_a_session_in_the_loaded_wake_worker(self):
+        service = self.make_service(onboarded=True)
+        workers = []
+        async def spawn(*_args, **_kwargs):
+            workers.append(FakeWorker())
+            return workers[-1]
+        with patch("murmur.daemon.asyncio.create_subprocess_exec", side_effect=spawn), \
+                patch.object(service, "execute", new_callable=AsyncMock) as execute:
+            try:
+                worker = await self.ready_wake_worker(service, workers)
+                await service.handle({"op": "listen"})
+                self.assertEqual(len(workers), 1, "Listen once reloaded the voice models")
+                self.assertFalse(worker.terminated)
+                self.assertEqual(worker.stdin.write.call_args.args[0], b"listen\n")
+                # Heard before the worker read the line; the new session replaces it.
+                worker.send(event="wake", deadline=time.monotonic() + service.activation.timeout)
+                worker.send(event="command", text="open steam", confidence=0.9, captured_at=time.monotonic())
+                deadline = time.monotonic() + service.activation.timeout
+                worker.send(event="ready", listening=True, deadline=deadline)
+                await until(lambda: service.message == "Say a command")
+                self.assertEqual((service.activation.state, service.activation.deadline), ("listening", deadline))
+                worker.send(event="command", text="open firefox", confidence=0.9, captured_at=time.monotonic())
+                await until(lambda: execute.await_count)
+                execute.assert_awaited_once_with("open firefox")
+                self.assertEqual(service.activation.state, "idle")
+                self.assertIs(service.worker, worker)
+            finally:
+                await service.stop_worker()
+
+    async def test_cancel_ends_the_session_in_the_loaded_wake_worker(self):
+        service = self.make_service(onboarded=True)
+        workers = []
+        async def spawn(*_args, **_kwargs):
+            workers.append(FakeWorker())
+            return workers[-1]
+        with patch("murmur.daemon.asyncio.create_subprocess_exec", side_effect=spawn), \
+                patch.object(service, "execute", new_callable=AsyncMock) as execute:
+            try:
+                worker = await self.ready_wake_worker(service, workers)
+                worker.send(event="wake", deadline=time.monotonic() + service.activation.timeout)
+                await until(lambda: service.activation.state == "listening")
+                await service.handle({"op": "cancel"})
+                self.assertEqual(len(workers), 1, "Cancel reloaded the voice models")
+                self.assertFalse(worker.terminated)
+                self.assertEqual(worker.stdin.write.call_args.args[0], b"cancel\n")
+                self.assertEqual(service.activation.state, "idle")
+                # Sent before the worker read the line: must not run.
+                worker.send(event="command", text="open firefox", confidence=0.9, captured_at=time.monotonic())
+                worker.send(event="ready", listening=False, deadline=None)
+                await until(lambda: service.message.startswith("Waiting for"))
+                execute.assert_not_awaited()
+                self.assertEqual(service.activation.state, "idle")
+                self.assertIs(service.worker, worker)
             finally:
                 await service.stop_worker()
 

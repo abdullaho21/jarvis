@@ -13,7 +13,10 @@ def waybar_line(event: dict | None) -> str:
     s = event.get("status", {})
     recording = s.get("recording", {}).get("state") == "recording"
     label = "● REC" if recording else "◉ " + s.get("state", "offline")
-    return json.dumps({"text": label, "tooltip": s.get("message", ""),
+    tooltip = s.get("message", "")
+    if s.get("replay", {}).get("state") == "on":
+        label, tooltip = label + " ⟲", tooltip + "\nInstant replay on"
+    return json.dumps({"text": label, "tooltip": tooltip,
                        "class": "recording" if recording else s.get("state", "offline")})
 
 
@@ -110,6 +113,8 @@ def main():
     execute.add_argument("phrase")
     record = sub.add_parser("record")
     record.add_argument("action", choices=["start", "stop"])
+    replay = sub.add_parser("replay", help="Instant replay: start, stop, or save the last seconds")
+    replay.add_argument("action", choices=["start", "stop", "save"])
     sub.add_parser("doctor", help="Read-only dependency and session checks")
     alias = sub.add_parser("alias", help="Give an installed app a voice name, e.g.: jarvis alias streamio stremio")
     alias.add_argument("name", nargs="?", help="What you will say (\"open <name>\")")
@@ -160,7 +165,8 @@ def main():
                 return run_waybar(watch, threading.Event())
             except (KeyboardInterrupt, BrokenPipeError):
                 return 0
-        op = {"resume": "mute", "mute": "mute", "record": "record_" + getattr(args, "action", "" )}.get(args.command, args.command)
+        op = {"resume": "mute", "mute": "mute", "record": "record_" + getattr(args, "action", ""),
+              "replay": "replay_" + getattr(args, "action", "")}.get(args.command, args.command)
         kwargs = {"muted": args.command == "mute"} if args.command in ("resume", "mute") else {}
         if args.command == "execute":
             kwargs["phrase"] = args.phrase

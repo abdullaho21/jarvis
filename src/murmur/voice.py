@@ -133,13 +133,19 @@ def run(config: dict, mode: str, grammar: dict | list[str]):
             while chunk := capture.stderr.read(512):
                 errors.append(chunk)
         threading.Thread(target=read_errors, daemon=True).start()
-        selector.register(capture.stdout, selectors.EVENT_READ)
+        audio = selector.register(capture.stdout, selectors.EVENT_READ)
+        # A wake worker keeps stdin open. Only after "ready" does the service
+        # write "listen" or "cancel" lines (so main()'s buffered payload read
+        # holds none); they start or drop a command session without a reload.
+        control = selector.register(0, selectors.EVENT_READ) if mode == "wake_word" else None
+        partial = b""   # an unfinished control line
         listening = mode == "once"
         deadline = time.monotonic() + (15 if mode == "test" else config["activation"]["command_timeout"]) if mode in ("test", "once") else None
         if engine:
             engine.begin_command() if listening else engine.begin_wake()
-        emit(event="ready", listening=listening, unsupported=engine.unsupported_phrases if engine else [],
-             engine=getattr(engine, "name", "pocketsphinx") if engine else None, deadline=deadline)
+        ready = functools.partial(emit, event="ready", unsupported=engine.unsupported_phrases if engine else [],
+                                  engine=getattr(engine, "name", "pocketsphinx") if engine else None)
+        ready(listening=listening, deadline=deadline)
         pending = bytearray()  # one 30 ms frame maximum, plus kernel pipe buffer
         noise = NoiseFloor(config["audio"]["vad_rms"], config["audio"].get("adaptive_gate", True))
         next_level = 0
@@ -182,7 +188,23 @@ def run(config: dict, mode: str, grammar: dict | list[str]):
             events = selector.select(max(0, next_deadline - now))
             if not events:
                 continue
-            data = os.read(capture.stdout.fileno(), frame_bytes - len(pending))
+            # Handle control first regardless of selector order; a continuously
+            # readable microphone must not starve listen/cancel acknowledgements.
+            if control is not None and any(key is control for key, _mask in events):
+                data = os.read(0, 4096)
+                if not data:   # the service closed the channel; keep waiting for the wake word
+                    selector.unregister(0)
+                    control = None
+                *commands, partial = (partial + data).split(b"\n")
+                for command in commands:   # each one is answered with "ready"
+                    listening = command == b"listen"
+                    deadline = time.monotonic() + config["activation"]["command_timeout"] if listening else None
+                    settling, quiet_frames, cooldown_until = False, 0, 0
+                    engine.begin_command() if listening else engine.begin_wake()
+                    ready(listening=listening, deadline=deadline)
+                if not any(key is audio for key, _mask in events):
+                    continue
+            data = os.read(audio.fd, frame_bytes - len(pending))
             if not data:
                 capture.wait(timeout=2)
                 detail = b"".join(errors).decode(errors="replace").strip()[-800:]

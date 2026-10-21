@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import types
@@ -217,6 +218,20 @@ class FakeVoskEngineTests(unittest.TestCase):
 # ------------------------------------------------------------- real model --
 MODEL = os.environ.get("MURMUR_VOSK_MODEL", "")
 FIXTURE = os.environ.get("MURMUR_SPEECH_TEST_RAW", "")
+
+
+@unittest.skipUnless(importlib.util.find_spec("vosk"), "optional voice dependency is not installed")
+class VoskImportTests(unittest.TestCase):
+    def test_binding_loads_without_download_helpers(self):
+        # A clean interpreter: the voice worker never uses vosk's model-download
+        # and subtitle helpers, so they must not stay in memory.
+        code = ("import sys; from murmur.vosk_engine import _import_vosk; vosk = _import_vosk(); "
+                "print(bool(vosk.Model and vosk.KaldiRecognizer and vosk.SetLogLevel)); "
+                "print(sorted(m for m in ('requests', 'tqdm', 'srt', 'urllib.request') if m in sys.modules)); "
+                "import urllib.request; print(callable(urllib.request.urlretrieve))")
+        env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1] / "src"))
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=60)
+        self.assertEqual(out.stdout.split(), ["True", "[]", "True"], out.stderr[-800:])
 
 
 @unittest.skipUnless(MODEL and importlib.util.find_spec("vosk"), "set MURMUR_VOSK_MODEL to vosk-model-small-en-us-0.15")

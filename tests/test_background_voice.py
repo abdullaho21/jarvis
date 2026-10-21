@@ -94,6 +94,76 @@ class WorkerDeadlineTests(unittest.TestCase):
         self.assertTrue(any(message.get("event") == "command" for message in messages))
 
 
+class WorkerControlTests(unittest.TestCase):
+    def test_control_is_processed_when_audio_and_control_are_ready_in_either_order(self):
+        # A continuously readable microphone must not starve Listen once/Cancel.
+        for order in (("audio", "control"), ("control", "audio")):
+            with self.subTest(order=order):
+                config = copy.deepcopy(DEFAULTS)
+                config["privacy"]["onboarded"] = True
+                engine = MagicMock(frame_bytes=960, unsupported_phrases=[], wants_raw_audio=True, unmatched=None)
+                engine.feed.return_value = None
+                selector, capture = MagicMock(), MagicMock()
+                capture.stderr = io.BytesIO()
+                keys, lines = {}, [b"listen\n", b"cancel\n"]
+                def register(fileobj, _events):
+                    key = MagicMock(fd=0 if fileobj == 0 else 10)
+                    keys["control" if fileobj == 0 else "audio"] = key
+                    return key
+                selector.register.side_effect = register
+                batches = 0
+                def select(_timeout):
+                    nonlocal batches
+                    batches += 1
+                    if batches > 2:
+                        raise SystemExit(0)
+                    return [(keys[name], 1) for name in order]
+                selector.select.side_effect = select
+                with patch("murmur.voice._parent_death"), patch("murmur.voice.signal.signal"), \
+                        patch("murmur.voice.make_engine", return_value=engine), \
+                        patch("murmur.voice.subprocess.Popen", return_value=capture), \
+                        patch("murmur.voice.selectors.DefaultSelector", return_value=selector), \
+                        patch("murmur.voice.os.read", side_effect=lambda fd, _size: lines.pop(0) if fd == 0 else bytes(960)), \
+                        patch("murmur.voice.time.monotonic", return_value=100.0), \
+                        patch("murmur.voice.emit") as emit, self.assertRaises(SystemExit):
+                    run(config, "wake_word", [])
+                self.assertEqual([c.kwargs["listening"] for c in emit.call_args_list
+                                  if c.kwargs.get("event") == "ready"], [False, True, False])
+
+    def test_listen_and_cancel_lines_steer_the_running_wake_worker(self):
+        config = copy.deepcopy(DEFAULTS)
+        config["privacy"]["onboarded"] = True
+        engine = MagicMock(frame_bytes=960, unsupported_phrases=[], wants_raw_audio=True, unmatched=None)
+        engine.feed.return_value = None
+        keys, lines = {}, [b"listen\n", b"cancel\n"]
+        selector = MagicMock()
+        selector.register.side_effect = lambda fileobj, _events: keys.setdefault(fileobj, MagicMock())
+        script = [0, None, 0]   # control line, audio frame, control line
+        def select(_timeout):
+            if not script:
+                raise SystemExit(0)   # the service stops the worker (its SIGTERM handler)
+            return [(keys.get(script.pop(0)), 1)]
+        selector.select.side_effect = select
+        capture = MagicMock()
+        capture.stderr = io.BytesIO()
+        with patch("murmur.voice._parent_death"), patch("murmur.voice.signal.signal"), \
+                patch("murmur.voice.make_engine", return_value=engine) as make_engine, \
+                patch("murmur.voice.subprocess.Popen", return_value=capture) as popen, \
+                patch("murmur.voice.selectors.DefaultSelector", return_value=selector), \
+                patch("murmur.voice.os.read", side_effect=lambda fd, _size: lines.pop(0) if fd == 0 else bytes(960)), \
+                patch("murmur.voice.time.monotonic", return_value=100.0), \
+                patch("murmur.voice.emit") as emit, self.assertRaises(SystemExit):
+            run(config, "wake_word", [])
+        make_engine.assert_called_once()
+        popen.assert_called_once()
+        self.assertEqual([c[0] for c in engine.method_calls if c[0].startswith("begin_")],
+                         ["begin_wake", "begin_command", "begin_wake"])
+        ready = [(c.kwargs["listening"], c.kwargs["deadline"]) for c in emit.call_args_list
+                 if c.kwargs.get("event") == "ready"]
+        self.assertEqual(ready, [(False, None), (True, 100.0 + DEFAULTS["activation"]["command_timeout"]),
+                                 (False, None)])
+
+
 class BackgroundDeliveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_service_dispatches_bounded_late_result_without_a_ui_watcher(self):
         with patch("murmur.daemon.AppRegistry", return_value=MagicMock(index={})):

@@ -4,8 +4,8 @@ from .hyprland import volume
 
 
 class Dispatcher:
-    def __init__(self, apps, desktop, recorder, pause, open_ui):
-        self.apps, self.desktop, self.recorder = apps, desktop, recorder
+    def __init__(self, apps, desktop, recorder, pause, open_ui, replay=None):
+        self.apps, self.desktop, self.recorder, self.replay = apps, desktop, recorder, replay
         self.pause, self.open_ui = pause, open_ui
 
     def execute(self, intent):
@@ -38,6 +38,8 @@ class Dispatcher:
         if action in ("record_start", "record_stop"):
             result = self.recorder.start() if action == "record_start" else self.recorder.stop()
             return result["message"]
+        if action in ("replay_start", "replay_stop", "replay_save"):
+            return getattr(self.replay, action.removeprefix("replay_"))()["message"]
         if action == "open_recorder":
             self.open_ui("recording")
             return "Opened recording settings"
