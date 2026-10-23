@@ -1,0 +1,260 @@
+{
+  "NUMBERS": {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10
+  },
+  "VARIANTS": {
+    "turn down the volume": "turn the volume down",
+    "lower the volume": "volume down",
+    "lower volume": "volume down",
+    "decrease the volume": "volume down",
+    "turn up the volume": "turn the volume up",
+    "raise the volume": "volume up",
+    "increase the volume": "volume up",
+    "mute the volume": "mute volume",
+    "mute audio": "mute volume",
+    "mute the audio": "mute volume",
+    "turn the sound off": "mute volume",
+    "turn the sound on": "turn the sound back on",
+    "sound on": "turn the sound back on",
+    "restore the volume": "turn the sound back on",
+    "start screen recording": "start recording",
+    "start a recording": "start recording",
+    "start recording my screen": "start recording",
+    "record my screen": "start recording",
+    "stop screen recording": "stop recording",
+    "stop the recording": "stop recording",
+    "stop recording my screen": "stop recording",
+    "end recording": "stop recording",
+    "open recorder": "open the video recorder",
+    "open the recorder": "open the video recorder",
+    "make the window full screen": "make this window full screen",
+    "make this full screen": "make this window full screen",
+    "go full screen": "make this window full screen",
+    "leave full screen": "exit full screen",
+    "stop listening to me": "stop listening",
+    "pause listening": "stop listening",
+    "cancel that": "cancel",
+    "never mind": "cancel",
+    "clip that": "save replay",
+    "save that": "save replay",
+    "save the replay": "save replay",
+    "save a replay": "save replay",
+    "start instant replay": "start replay",
+    "turn on instant replay": "start replay",
+    "stop instant replay": "stop replay",
+    "turn off instant replay": "stop replay"
+  },
+  "POLITE_PREFIXES": [
+    "please",
+    "can you",
+    "could you",
+    "would you",
+    "can you please",
+    "could you please",
+    "would you please"
+  ],
+  "POLITE_SUFFIXES": [
+    "please",
+    "for me",
+    "for me please"
+  ],
+  "WORKSPACE_FORMS": {
+    "go to workspace": "workspace",
+    "go to the workspace": "workspace",
+    "switch to workspace": "workspace",
+    "switch to the workspace": "workspace",
+    "switch workspace": "workspace",
+    "move this window to workspace": "move_workspace",
+    "move the window to workspace": "move_workspace",
+    "move this window to the workspace": "move_workspace",
+    "move the window to the workspace": "move_workspace"
+  },
+  "APP_VERBS": {
+    "open": "open_app",
+    "open up": "open_app",
+    "launch": "open_app",
+    "start": "open_app",
+    "focus": "focus_app",
+    "switch to": "focus_app"
+  },
+  "TYPED_ONLY_VERBS": [
+    "open up"
+  ],
+  "REFERENCE": [
+    {
+      "category": "Applications",
+      "title": "Open or focus an app",
+      "examples": [
+        "open Dolphin",
+        "please open Firefox",
+        "could you launch Firefox",
+        "focus Firefox",
+        "switch to Firefox"
+      ]
+    },
+    {
+      "category": "Workspaces",
+      "title": "Navigate without keybindings",
+      "examples": [
+        "go to workspace three",
+        "switch to workspace three",
+        "move this window to workspace two"
+      ]
+    },
+    {
+      "category": "Windows",
+      "title": "Fullscreen",
+      "examples": [
+        "make this window fullscreen",
+        "exit fullscreen"
+      ]
+    },
+    {
+      "category": "Audio",
+      "title": "Volume",
+      "examples": [
+        "turn the volume down",
+        "turn down the volume",
+        "turn the volume up",
+        "mute volume",
+        "turn the sound back on"
+      ]
+    },
+    {
+      "category": "Recording",
+      "title": "Capture your screen",
+      "examples": [
+        "start recording",
+        "stop recording",
+        "open the video recorder"
+      ]
+    },
+    {
+      "category": "Recording",
+      "title": "Instant replay",
+      "examples": [
+        "clip that",
+        "save replay",
+        "start replay",
+        "stop replay"
+      ]
+    },
+    {
+      "category": "Privacy",
+      "title": "Stop immediately",
+      "examples": [
+        "stop listening",
+        "cancel"
+      ]
+    }
+  ],
+  "GREETINGS": [
+    "hey",
+    "hi",
+    "hello",
+    "okay",
+    "ok"
+  ],
+  "NUMBER_WORDS": [
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "twenty"
+  ],
+  "FIXED": {
+    "make this window full screen": {
+      "action": "fullscreen",
+      "target": null
+    },
+    "exit full screen": {
+      "action": "unfullscreen",
+      "target": null
+    },
+    "turn the volume down": {
+      "action": "volume_down",
+      "target": null
+    },
+    "volume down": {
+      "action": "volume_down",
+      "target": null
+    },
+    "turn the volume up": {
+      "action": "volume_up",
+      "target": null
+    },
+    "volume up": {
+      "action": "volume_up",
+      "target": null
+    },
+    "mute volume": {
+      "action": "volume_mute",
+      "target": null
+    },
+    "turn the sound back on": {
+      "action": "volume_unmute",
+      "target": null
+    },
+    "start recording": {
+      "action": "record_start",
+      "target": null
+    },
+    "stop recording": {
+      "action": "record_stop",
+      "target": null
+    },
+    "open the video recorder": {
+      "action": "open_recorder",
+      "target": null
+    },
+    "open video recorder": {
+      "action": "open_recorder",
+      "target": null
+    },
+    "save replay": {
+      "action": "replay_save",
+      "target": null
+    },
+    "start replay": {
+      "action": "replay_start",
+      "target": null
+    },
+    "stop replay": {
+      "action": "replay_stop",
+      "target": null
+    },
+    "stop listening": {
+      "action": "pause",
+      "target": null
+    },
+    "cancel": {
+      "action": "cancel",
+      "target": null
+    }
+  }
+}

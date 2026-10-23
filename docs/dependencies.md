@@ -47,6 +47,28 @@ install-model` downloads it from alphacephei.com and checks a pinned SHA-256.
 openWakeWord was researched but is not installed. Its pretrained model terms
 are separate from its code license.
 
+The optional Rust Whisper and GTCRN implementations use tract-onnx 0.23.9 and RustFFT 6.4.1
+(each MIT OR Apache-2.0). It reads the same separately installed model weights.
+Their exact transitive dependencies are recorded in the Cargo lockfiles.
+The Python reference path continues to use sherpa-onnx/ONNX Runtime; the Rust
+recognizer and denoiser's neural and spectral computations do not use those libraries.
+Whisper also uses Rayon 1.12.0 (MIT OR Apache-2.0) for its bounded CPU pool and
+base64 0.22.1 (MIT OR Apache-2.0) for the existing token table. Its full-precision
+embedding and int8 linear weights retain the model's existing precision.
+
+The optional [Rust controller](rust-controller.md) uses Tokio 1.54.1 for its
+current-thread event loop, Unix sockets, subprocesses and bounded channels.
+serde/serde_json, regex, Unicode normalization/case folding, shlex and libc
+support the existing configuration, parser and desktop integration rules.
+Its exact dependency versions are recorded in `native/controller/Cargo.lock`.
+It links neither Python/GTK nor a speech inference runtime.
+
+The optional [Rust CLI](rust-cli.md) shares the controller library and uses
+ureq 3.5.0 with rustls for HTTPS, sha2 for checksums, zip 9.0.5, tar and
+bzip2-rs for streaming model extraction. It does not invoke Python, curl,
+unzip or tar for setup. `native/cli/Cargo.lock` records transitive versions.
+The existing settings window still requires Python/GTK.
+
 Before a public release: complete the engineers' review, validate a representative
 voice/noise corpus, review distribution notices, and exercise the gaming/audio/scaling checks in
 [verification](verification.md). No remote repository was created or published.

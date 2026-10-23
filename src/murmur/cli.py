@@ -130,6 +130,11 @@ def main():
             from .ui import main as ui_main
             return ui_main(["--page", getattr(args, "page", "dashboard")])
         if args.command == "daemon":
+            from .native_controller import selected_binary
+            native = selected_binary()
+            if native is not None:
+                import os
+                os.execv(str(native), [str(native)])
             from .daemon import main as daemon_main
             return daemon_main()
         if args.command == "install-model":

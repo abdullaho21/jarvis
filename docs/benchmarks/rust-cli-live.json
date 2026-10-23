@@ -1,0 +1,18 @@
+{
+  "client_version": "jarvis 0.1.0 (Rust)",
+  "controller": "rust",
+  "service_pid_unchanged": true,
+  "settings_file_unchanged": true,
+  "effective_settings_unchanged": true,
+  "denoising_enabled": true,
+  "replay_state": "on",
+  "doctor_runtime": "Rust",
+  "existing_models_reused_without_download": true,
+  "service_child_programs": [
+    "gpu-screen-recorder",
+    "gsr-kms-server",
+    "jarvis-voice",
+    "pw-cat"
+  ],
+  "settings_ui_runtime": "Python/GTK"
+}

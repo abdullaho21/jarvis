@@ -69,7 +69,7 @@ running. Use Mute to close voice input.
 
 Without the downloaded models, the bundled PocketSphinx fallback has lower
 recognition quality. After a system Python minor upgrade, rebuild the venv;
-`./run-jarvis doctor` reports a Python/venv mismatch.
+`MURMUR_CLI=python ./run-jarvis doctor` reports a Python/venv mismatch.
 
 ## Commands and app aliases
 
@@ -143,14 +143,41 @@ See [current performance and reproduction](docs/performance.md),
 remaining acceptance checks. Older PocketSphinx measurements are archived and
 do not describe the current recognizer.
 
+An optional [Rust voice worker](docs/rust-voice.md) now performs both
+[Whisper recognition](docs/rust-whisper.md) and [GTCRN denoising](docs/rust-denoiser.md)
+with Rust audio processing and neural kernels, using the existing model weights.
+Vectorized kernels cut the first Rust version’s median decode time by about
+57%. On the current public fixtures it roughly matches native transcription
+latency while retaining about 57 MiB less memory in the isolated transcriber. Vosk wake detection still uses its native library.
+Python remains the default; the guides explain build, selection and verification.
+
+An optional [Rust background controller](docs/rust-controller.md) also implements
+the local service API, configuration, command dispatch and recorder/replay
+supervision. The current GTK settings window and CLI remain compatible. Build
+it with `scripts/build_controller.py`; select it with
+`MURMUR_CONTROLLER=rust ./run-jarvis daemon` or launch its executable directly.
+
+A [memory audit](docs/rust-worker-memory.md) identified the voice worker as
+Jarvis's largest RAM user. Lossless embedding storage reduced its controlled
+retained RSS from **558.9 to 483.0 MiB**, with identical fixture outputs.
+
+The [Rust CLI](docs/rust-cli.md) adds native controls, aliases, Waybar status,
+diagnostics and verified model/user installation. Build it with
+`scripts/build_cli.py --test`; `./run-jarvis` then prefers the native executable.
+`MURMUR_CLI=python` selects the compatibility client. The GTK settings window
+still uses Python. Building the client does not restart the service.
+
 ```sh
 .venv/bin/python -m unittest discover -s tests -v
 ./run-jarvis doctor
 .venv/bin/python scripts/install_user.py --dry-run --service
 ```
 
-All **150 tests** passed with local voice models and the public speech fixture.
-CodeRabbit raised **0 issues** across the completed review changes. Regular
+The latest Rust CLI/controller regression run passed **244 tests** with local
+voice models and the public speech fixture. The voice crates passed **18 Rust
+unit tests**, and the CLI/controller passed 11. The
+earlier review passed 150 tests and CodeRabbit raised 0 issues across that
+review's changes. Regular
 tests do not open the microphone or capture the screen. Real-model tests require
 explicitly supplied local model and fixture paths. The [GitHub Actions
 workflow](https://github.com/abdullaho21/jarvis/actions) checks core tests,

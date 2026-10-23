@@ -3,6 +3,20 @@
 # Works through symlinks, e.g. ln -s "$PWD/run-murmur" ~/.local/bin/murmur
 set -eu
 MURMUR_ROOT=$(dirname -- "$(readlink -f -- "$0")")
+native="$MURMUR_ROOT/src/murmur/bin/jarvis"
+case "${MURMUR_CLI:-auto}" in
+    auto|rust)
+        if [ -x "$native" ]; then
+            exec "$native" "$@"
+        fi
+        if [ "${MURMUR_CLI:-auto}" = rust ]; then
+            echo "run-jarvis: build the Rust client with scripts/build_cli.py first." >&2
+            exit 127
+        fi
+        ;;
+    python) ;;
+    *) echo "run-jarvis: MURMUR_CLI must be auto, rust, or python." >&2; exit 2 ;;
+esac
 py="$MURMUR_ROOT/.venv/bin/python"
 rebuild="cd \"$MURMUR_ROOT\" && rm -rf .venv && python3 -m venv --system-site-packages .venv && .venv/bin/python -m pip install -e '.[voice]'"
 if [ ! -x "$py" ]; then

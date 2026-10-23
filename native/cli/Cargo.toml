@@ -1,0 +1,27 @@
+[package]
+name = "jarvis-cli"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+license = "MIT"
+description = "Native Jarvis command-line controls and verified model setup"
+
+[[bin]]
+name = "jarvis"
+path = "src/main.rs"
+
+[dependencies]
+jarvis-controller = { path = "../controller" }
+libc = "0.2"
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "=1.54.1", features = ["rt", "macros", "net", "io-util", "signal", "time"] }
+unicode-casefold = "0.2"
+ureq = { version = "=3.5.0", default-features = false, features = ["rustls"] }
+sha2 = "0.10"
+zip = { version = "=9.0.5", default-features = false, features = ["deflate"] }
+tar = "0.4"
+bzip2-rs = "0.1"
+
+[profile.release]
+lto = "thin"
+strip = "debuginfo"

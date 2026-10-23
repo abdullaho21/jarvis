@@ -1,0 +1,28 @@
+{
+  "scope": "Live worker reload; old/new lifetimes and audio history differ. Use controlled fixture comparison to attribute memory savings.",
+  "before": {
+    "pid": 1290164,
+    "memory_mib": {
+      "rss": 707.48,
+      "pss": 702.935,
+      "uss": 702.867
+    },
+    "binary_sha256": "68de2a2ca351064ef0d332283093d20ffe77b3a3aee1a67c158066adb57725c5"
+  },
+  "controlled_fixture_report": "rust-embedding-worker.json",
+  "after": {
+    "pid": 3275434,
+    "memory_mib": {
+      "rss": 463.898,
+      "pss": 459.409,
+      "uss": 459.344
+    },
+    "binary_sha256": "c43b795f2a3122848fd0cc88a3d0837fa327f2f559fb6c4d30dfa009ca36e1aa"
+  },
+  "controller_pid_unchanged": true,
+  "recorder_pids_unchanged": true,
+  "settings_unchanged": true,
+  "denoising_enabled": true,
+  "replay_state": "on",
+  "voice_resumed": true
+}
