@@ -46,6 +46,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixture", required=True, type=Path)
     parser.add_argument("--baseline", action="store_true", help="Use the original ORT CPU arena and no allocator trim")
+    parser.add_argument("--denoise", action="store_true", help="Enable the installed GTCRN denoiser")
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--threads", type=int, help="Override the normal thread count for comparison")
     parser.add_argument("--settle-seconds", type=float, default=.2,
@@ -67,8 +68,10 @@ def main():
     from murmur.transcriber import Transcriber, default_threads
     process = psutil.Process()
     start = time.perf_counter()
-    engine = Transcriber(memory_efficient=not args.baseline, threads=args.threads)
-    result = {"baseline_allocator": args.baseline, "model": engine.name,
+    engine = Transcriber(memory_efficient=not args.baseline, threads=args.threads, denoise=args.denoise)
+    if args.denoise and engine._denoiser is None:
+        parser.error("GTCRN model missing; install it before running the denoiser benchmark")
+    result = {"baseline_allocator": args.baseline, "denoise": args.denoise, "model": engine.name,
               "sherpa_onnx": sherpa_onnx.__version__, "threads": args.threads or default_threads(),
               "python": platform.python_version(), "platform": platform.platform(),
               "fixture_sha256": hashlib.sha256(audio).hexdigest(),

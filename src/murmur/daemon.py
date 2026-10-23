@@ -167,13 +167,15 @@ class Service:
             if mode == "once":
                 self.activation.arm()
             payload = {"config": self.config, "mode": mode, "grammar": self.voice_grammar()}
+            from .native_worker import prepare
+            worker_argv, payload, worker_env = prepare(self.config, mode, payload["grammar"])
             encoded = (json.dumps(payload) + "\n").encode()
             if len(encoded) > 1048576:
                 raise CommandError("Voice grammar exceeds the 1 MiB worker limit")
             self.worker = await asyncio.create_subprocess_exec(
-                sys.executable, "-m", "murmur.voice", stdin=asyncio.subprocess.PIPE,
+                *worker_argv, stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, limit=65536,
-                env=dict(os.environ, MURMUR_OWNER_PID=str(os.getpid())))
+                env=worker_env)
             self.worker_mode = mode
             # Mute may arrive while subprocess creation yields. Never leave a stale worker.
             if self.muted or not self.config["privacy"]["onboarded"] or (mode == "wake_word" and self.config["activation"]["mode"] != "wake_word"):

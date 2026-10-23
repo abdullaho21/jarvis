@@ -143,6 +143,14 @@ See [current performance and reproduction](docs/performance.md),
 remaining acceptance checks. Older PocketSphinx measurements are archived and
 do not describe the current recognizer.
 
+An optional [Rust voice worker](docs/rust-voice.md) now performs both
+[Whisper recognition](docs/rust-whisper.md) and [GTCRN denoising](docs/rust-denoiser.md)
+with Rust audio processing and neural kernels, using the existing model weights.
+Vectorized kernels cut the first Rust version’s median decode time by about
+57%. On the current public fixtures it roughly matches native transcription
+latency while retaining about 57 MiB less memory in the isolated transcriber. Vosk wake detection still uses its native library.
+Python remains the default; the guides explain build, selection and verification.
+
 ```sh
 .venv/bin/python -m unittest discover -s tests -v
 ./run-jarvis doctor

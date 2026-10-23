@@ -47,6 +47,15 @@ install-model` downloads it from alphacephei.com and checks a pinned SHA-256.
 openWakeWord was researched but is not installed. Its pretrained model terms
 are separate from its code license.
 
+The optional Rust Whisper and GTCRN implementations use tract-onnx 0.23.9 and RustFFT 6.4.1
+(each MIT OR Apache-2.0). It reads the same separately installed model weights.
+Their exact transitive dependencies are recorded in the Cargo lockfiles.
+The Python reference path continues to use sherpa-onnx/ONNX Runtime; the Rust
+recognizer and denoiser's neural and spectral computations do not use those libraries.
+Whisper also uses Rayon 1.12.0 (MIT OR Apache-2.0) for its bounded CPU pool and
+base64 0.22.1 (MIT OR Apache-2.0) for the existing token table. Its full-precision
+embedding and int8 linear weights retain the model's existing precision.
+
 Before a public release: complete the engineers' review, validate a representative
 voice/noise corpus, review distribution notices, and exercise the gaming/audio/scaling checks in
 [verification](verification.md). No remote repository was created or published.

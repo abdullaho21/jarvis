@@ -125,6 +125,17 @@ lifetime, and `ui` is a native client. A different desktop can implement the
 desktop query/dispatch adapter without teaching the parser shell commands.
 Only Hyprland is implemented and verified here.
 
+An optional Rust worker implements the same voice-process boundary and JSON
+protocol. The daemon chooses it with `MURMUR_VOICE_WORKER=rust`; Python remains
+the default. Paths and command-to-intent candidates are prepared without
+importing speech libraries in the daemon. See [Rust worker](rust-voice.md) for
+build instructions, model parity, measured memory savings and prototype limits.
+Whisper and GTCRN computation in this worker now uses Rust/tract kernels and
+RustFFT, without sherpa-onnx or ONNX Runtime. Vosk wake/boundary decoding still
+uses its existing shared library. The Rust decoder owns append-only command
+caches and discards inference scratch between commands. See
+[Rust Whisper](rust-whisper.md) for its supported export and measured latency.
+
 The adapter invokes `hyprctl` with structured arguments and parses its JSON
 queries. With a Lua Hyprland config (0.55+), dispatches use the Lua
 dispatcher form (`hl.dsp.focus`, `hl.dsp.window.move`, `hl.dsp.window.fullscreen`);
