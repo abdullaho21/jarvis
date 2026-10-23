@@ -10,6 +10,8 @@ allowlisted actions; there is no Python interpreter in the Rust voice process.
 The initial implementation only wrapped the native recognizers and denoiser.
 Its historical measurements appear below; the current computation and resource
 comparison are documented in [Rust Whisper](rust-whisper.md).
+The later [memory audit and lossless embedding optimization](rust-worker-memory.md)
+targets the resident voice worker, the largest Jarvis process in the audit.
 
 Python remains the default and supports the PocketSphinx fallback. Select Rust
 explicitly for comparison. This prototype supports Vosk and the current default

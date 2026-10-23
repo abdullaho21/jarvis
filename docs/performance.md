@@ -122,6 +122,25 @@ comparing timing.
 
 ## Practical limits
 
+The [voice-worker memory audit](rust-worker-memory.md) targets the largest
+Jarvis process. Lossless embedding storage cut the controlled complete Rust
+worker's retained RSS from **558.88 to 482.98 MiB**, with the same model values
+and identical fixture commands. [Raw comparison](benchmarks/rust-embedding-worker.json).
+This supersedes older Rust worker memory figures for the new build; it does
+not change the screen recorder's RAM buffers.
+
+The optional [Rust controller](rust-controller.md) has a separate
+[controller-only comparison](benchmarks/rust-controller.json). It measures the
+background service with voice/replay off and excludes the UI, speech models and
+video buffers. Those memory savings must not be interpreted as a percentage
+reduction in the full running application.
+
+The [Rust CLI comparison](rust-cli.md#verification-and-memory) measures the
+persistent offline Waybar client separately: median RSS was **16.16 MiB for
+Python versus 3.56 MiB for Rust** across three process pairs. This is about
+78% less memory for that indicator process; it does not change model or replay
+buffer memory. [Raw samples](benchmarks/rust-cli.json) include PSS and timings.
+
 Whisper has a brief CPU burst per command; low standby CPU does not imply zero
 interference during inference. No controlled game FPS/frame-time comparison has
 been performed, so no FPS claim is made. That acceptance check remains open.

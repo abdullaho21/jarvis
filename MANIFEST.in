@@ -6,9 +6,13 @@ recursive-include scripts *.py
 recursive-include native/voice-worker *.rs Cargo.toml Cargo.lock
 recursive-include native/gtcrn-denoiser *.rs Cargo.toml Cargo.lock
 recursive-include native/whisper-recognizer *.rs Cargo.toml Cargo.lock
+recursive-include native/controller *.rs *.json Cargo.toml Cargo.lock
+recursive-include native/cli *.rs *.bz2 Cargo.toml Cargo.lock
 prune native/voice-worker/target
 prune native/gtcrn-denoiser/target
 prune native/whisper-recognizer/target
+prune native/controller/target
+prune native/cli/target
 recursive-include examples *.json *.jsonc *.conf *.lua
 recursive-include docs *.md *.json *.png
 recursive-include .github *.yml *.md

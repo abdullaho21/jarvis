@@ -7,6 +7,19 @@ Vosk, the resident Whisper small.en transcriber and a `pw-record` child. GTK set
 process; closing it releases the UI while voice and recorder remain available.
 The recorder is a separate established `wf-recorder` process only while needed.
 
+The optional [Rust controller](rust-controller.md) replaces the background
+service while preserving its Unix-socket API. It owns configuration, parsing,
+app discovery, action dispatch and voice/recorder/replay lifetimes directly in
+Rust. GTK remains a separate Python client. The existing Python controller
+remains the default unless Rust is explicitly selected.
+
+The optional [Rust CLI](rust-cli.md) shares the controller's library for
+configuration, policy and local integration. It handles controls, aliases,
+Waybar events, diagnostics and setup directly. Building it makes `run-jarvis`
+prefer the native executable; its `daemon` command runs the Rust controller.
+`MURMUR_CLI=python` retains access to the Python launcher and controller selector.
+The `ui` command replaces the client with the separate Python/GTK window.
+
 ```mermaid
 flowchart LR
   MIC[PipeWire input] --> PCM[pw-record: 16 kHz mono PCM]

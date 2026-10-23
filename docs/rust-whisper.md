@@ -5,7 +5,9 @@ sherpa-onnx C API calls. The implementation uses RustFFT for audio features,
 tract 0.23.9 for the quantized encoder and decoder operators, and Rust for
 cache management, embedding lookup, vocabulary projection, greedy sampling
 and byte-token decoding. The existing int8 ONNX linear weights and float32
-embeddings are unchanged. There is no retraining or model conversion.
+embedding values are unchanged. The [memory optimization](rust-worker-memory.md)
+stores exactly representable embeddings compactly and expands them for float32
+computation. There is no retraining or change to the ONNX files.
 
 The voice worker calls `jarvis_whisper::Recognizer` directly and also uses the
 existing [Rust GTCRN denoiser](rust-denoiser.md). Neither computation uses Python,

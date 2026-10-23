@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-23",
+  "scope": "read-only snapshot after activating the native controller; RSS/PSS per process; separate GTK client excluded; voice/replay active; not a controlled before/after comparison",
+  "controller_binary_sha256": "34fac4f652892b5a3705d8bb33056fbe2925f0930bf7c077943148c5a22ffb20",
+  "controller": "rust",
+  "voice_engine": "vosk+whisper-small",
+  "denoising_enabled": true,
+  "replay_state": "on",
+  "settings_preserved": true,
+  "processes": [
+    {
+      "executable": "jarvis-controller",
+      "rss_mib": 6.91,
+      "pss_mib": 4.62
+    },
+    {
+      "executable": "jarvis-voice",
+      "rss_mib": 545.32,
+      "pss_mib": 540.83
+    },
+    {
+      "executable": "pw-cat",
+      "rss_mib": 8.94,
+      "pss_mib": 2.87
+    },
+    {
+      "executable": "gpu-screen-recorder",
+      "rss_mib": 284.42,
+      "pss_mib": 225.1
+    }
+  ]
+}

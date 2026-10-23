@@ -1,12 +1,13 @@
 //! Whisper small.en inference with Rust feature extraction and tract kernels.
 //! ONNX supplies unchanged int8/f32 weights; no foreign inference runtime.
+mod embedding;
 mod features;
 mod graph;
 mod quantize;
 mod scale;
 use base64::{engine::general_purpose::STANDARD, Engine};
+use embedding::Embedding;
 use features::Features;
-use rayon::prelude::*;
 use std::{
     collections::{BTreeMap, HashMap},
     path::Path,
@@ -25,7 +26,7 @@ pub struct Recognizer {
     encoder: Arc<TypedRunnableModel>,
     blocks: Vec<Arc<TypedRunnableModel>>,
     norm: Arc<TypedRunnableModel>,
-    embedding: Tensor,
+    embedding: Embedding,
     positions: Tensor,
     tokens: HashMap<usize, Vec<u8>>,
     pool: Arc<rayon::ThreadPool>,
@@ -96,6 +97,7 @@ impl Recognizer {
             embedding.shape() == [VOCAB, STATE] && positions.shape() == [448, STATE],
             "Unexpected embedding shape"
         );
+        let embedding = Embedding::new(embedding)?;
         let blocks = (0..LAYERS)
             .map(|i| plan(graph::Builder::new(g).block(i)?, &pool))
             .collect::<TractResult<Vec<_>>>()?;
@@ -180,6 +182,12 @@ impl Recognizer {
     pub fn features(&self, samples: &[f32]) -> TractResult<(Tensor, usize)> {
         self.features.compute(samples)
     }
+    pub fn embedding_storage(&self) -> &'static str {
+        self.embedding.storage()
+    }
+    pub fn embedding_bytes(&self) -> usize {
+        self.embedding.bytes()
+    }
     pub fn transcribe(&self, samples: &[f32]) -> TractResult<String> {
         self.recognize(samples, None)
     }
@@ -242,12 +250,13 @@ impl Recognizer {
         for step in 0..=maximum {
             let n = input.len();
             let mut x = Vec::with_capacity(n * STATE);
-            let embedding = self.embedding.try_as_plain_ram()?.as_slice::<f32>()?;
             let positions = self.positions.try_as_plain_ram()?.as_slice::<f32>()?;
             for (i, &token) in input.iter().enumerate() {
-                for j in 0..STATE {
-                    x.push(embedding[token * STATE + j] + positions[(offset + i) * STATE + j]);
-                }
+                self.embedding.append_positioned(
+                    token,
+                    &positions[(offset + i) * STATE..(offset + i + 1) * STATE],
+                    &mut x,
+                )?;
             }
             let mut x = Tensor::from_shape(&[1, n, STATE], &x)?.into_tvalue();
             let total = offset + n;
@@ -294,12 +303,7 @@ impl Recognizer {
                 "final_norm",
             )?;
             let x = norm[0].try_as_plain_ram()?.as_slice::<f32>()?;
-            let logits: Vec<f32> = self.pool.install(|| {
-                embedding
-                    .par_chunks_exact(STATE)
-                    .map(|row| dot(row, x))
-                    .collect()
-            });
+            let logits = self.embedding.project(x, &self.pool)?;
             ensure!(
                 logits.iter().all(|x| x.is_finite()),
                 "Non-finite decoder logits"
@@ -371,13 +375,4 @@ fn write_tensor(path: &Path, tensor: &Tensor) -> TractResult<()> {
     }
     out.flush()?;
     Ok(())
-}
-fn dot(a: &[f32], b: &[f32]) -> f32 {
-    let mut sums = [0.0_f32; 8];
-    for (a, b) in a.as_chunks::<8>().0.iter().zip(b.as_chunks::<8>().0) {
-        for j in 0..8 {
-            sums[j] += a[j] * b[j];
-        }
-    }
-    sums.into_iter().sum()
 }

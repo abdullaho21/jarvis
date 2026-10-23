@@ -74,7 +74,7 @@ fn run() -> TractResult<()> {
     trim();
     println!(
         "{}",
-        json!({"event":"ready","implementation":"rust-tract-0.23.9","load_seconds":start.elapsed().as_secs_f64(),"memory":memory()})
+        json!({"event":"ready","implementation":"rust-tract-0.23.9","load_seconds":start.elapsed().as_secs_f64(),"memory":memory(),"embedding":{"storage":model.embedding_storage(),"bytes":model.embedding_bytes()}})
     );
     let infer = |path: &str, trace: Option<&str>| -> TractResult<()> {
         let samples = pcm(path)?;

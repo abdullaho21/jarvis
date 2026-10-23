@@ -17,6 +17,8 @@ benchmark-results.local.json
 native/voice-worker/target/
 native/gtcrn-denoiser/target/
 native/whisper-recognizer/target/
+native/controller/target/
+native/cli/target/
 src/murmur/bin/
 .env
 .env.*

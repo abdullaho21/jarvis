@@ -99,7 +99,9 @@ class RustWhisperInferenceTests(unittest.TestCase):
             with selectors.DefaultSelector() as selector:
                 selector.register(process.stdout, selectors.EVENT_READ)
                 self.assertTrue(selector.select(15), "Recognizer failed to load")
-            self.assertEqual(json.loads(process.stdout.readline())["event"], "ready")
+            ready = json.loads(process.stdout.readline())
+            self.assertEqual(ready["event"], "ready")
+            self.assertEqual(ready["embedding"], {"storage": "lossless-f16", "bytes": 51864 * 768 * 2})
             maps = Path(f"/proc/{process.pid}/maps").read_text().lower()
             for name in ("libpython", "onnxruntime", "sherpa", "libstdc++"):
                 self.assertNotIn(name, maps)

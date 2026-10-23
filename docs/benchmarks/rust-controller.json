@@ -1,0 +1,117 @@
+{
+  "date": "2026-10-23",
+  "platform": "Linux-7.2.10-1-cachyos-x86_64-with-glibc2.44",
+  "python": "3.14.8",
+  "rust_binary_sha256": "34fac4f652892b5a3705d8bb33056fbe2925f0930bf7c077943148c5a22ffb20",
+  "scope": "fresh sequential controllers; private default config and IPC; microphone, voice models and replay off; normal read-only app discovery; excludes UI, workers and encoders",
+  "medians": {
+    "python": {
+      "rss_mib": 25.46875,
+      "pss_mib": 15.89453125,
+      "peak_rss_mib": 25.47265625,
+      "startup_to_status_ms": 85.96789999955945,
+      "median_status_ms": 0.20900050049021957,
+      "idle_cpu_seconds": 0.0
+    },
+    "rust": {
+      "rss_mib": 5.88671875,
+      "pss_mib": 3.603515625,
+      "peak_rss_mib": 5.88671875,
+      "startup_to_status_ms": 7.999376000043412,
+      "median_status_ms": 0.039409500004694564,
+      "idle_cpu_seconds": 0.0
+    }
+  },
+  "samples": [
+    {
+      "repeat": 0,
+      "engine": "python",
+      "startup_to_status_ms": 85.93151300010504,
+      "median_status_ms": 0.20900050049021957,
+      "requests": 100,
+      "idle_seconds": 3.0,
+      "idle_cpu_seconds": 0.009999999999999995,
+      "maps_contain_libpython": true,
+      "rss_mib": 25.46875,
+      "pss_mib": 15.8994140625,
+      "private_clean_mib": 0.171875,
+      "private_dirty_mib": 14.625,
+      "peak_rss_mib": 25.47265625
+    },
+    {
+      "repeat": 0,
+      "engine": "rust",
+      "startup_to_status_ms": 7.740775999991456,
+      "median_status_ms": 0.039409500004694564,
+      "requests": 100,
+      "idle_seconds": 3.0,
+      "idle_cpu_seconds": 0.0,
+      "maps_contain_libpython": false,
+      "rss_mib": 5.87109375,
+      "pss_mib": 3.599609375,
+      "private_clean_mib": 2.828125,
+      "private_dirty_mib": 0.76171875,
+      "peak_rss_mib": 5.87109375
+    },
+    {
+      "repeat": 1,
+      "engine": "rust",
+      "startup_to_status_ms": 7.999376000043412,
+      "median_status_ms": 0.04458450030142558,
+      "requests": 100,
+      "idle_seconds": 3.0,
+      "idle_cpu_seconds": 0.0,
+      "maps_contain_libpython": false,
+      "rss_mib": 5.88671875,
+      "pss_mib": 3.603515625,
+      "private_clean_mib": 2.83203125,
+      "private_dirty_mib": 0.76171875,
+      "peak_rss_mib": 5.88671875
+    },
+    {
+      "repeat": 1,
+      "engine": "python",
+      "startup_to_status_ms": 86.68267400025798,
+      "median_status_ms": 0.2145964999726857,
+      "requests": 100,
+      "idle_seconds": 3.0,
+      "idle_cpu_seconds": 0.0,
+      "maps_contain_libpython": true,
+      "rss_mib": 25.45703125,
+      "pss_mib": 15.8603515625,
+      "private_clean_mib": 0.13671875,
+      "private_dirty_mib": 14.6328125,
+      "peak_rss_mib": 25.46484375
+    },
+    {
+      "repeat": 2,
+      "engine": "python",
+      "startup_to_status_ms": 85.96789999955945,
+      "median_status_ms": 0.195510499906959,
+      "requests": 100,
+      "idle_seconds": 3.0,
+      "idle_cpu_seconds": 0.0,
+      "maps_contain_libpython": true,
+      "rss_mib": 25.46875,
+      "pss_mib": 15.89453125,
+      "private_clean_mib": 0.171875,
+      "private_dirty_mib": 14.625,
+      "peak_rss_mib": 25.47265625
+    },
+    {
+      "repeat": 2,
+      "engine": "rust",
+      "startup_to_status_ms": 8.124201999635261,
+      "median_status_ms": 0.0382270000045537,
+      "requests": 100,
+      "idle_seconds": 3.0,
+      "idle_cpu_seconds": 0.0,
+      "maps_contain_libpython": false,
+      "rss_mib": 6.0390625,
+      "pss_mib": 3.7216796875,
+      "private_clean_mib": 2.9453125,
+      "private_dirty_mib": 0.765625,
+      "peak_rss_mib": 6.0390625
+    }
+  ]
+}

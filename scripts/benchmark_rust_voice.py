@@ -86,7 +86,7 @@ def rust_run(fixture: bytes, repeats: int, denoise: bool, threads: int, binary: 
             process.stdin.close()
 
 
-def worker_run(worker: str, fixture: Path, repeats: int, denoise: bool):
+def worker_run(worker: str, fixture: Path, repeats: int, denoise: bool, binary: Path | None = None):
     """Exercise the real worker loop with a paced fake pw-record process."""
     import psutil
     config = copy.deepcopy(DEFAULTS)
@@ -96,6 +96,10 @@ def worker_run(worker: str, fixture: Path, repeats: int, denoise: bool):
     grammar = Parser({"ten meters": "start recording"}).grammar(["firefox", "steam", "stremio"])
     with patch.dict(os.environ, MURMUR_VOICE_WORKER=worker):
         argv, payload, env = prepare(config, "wake_word", grammar)
+    if binary is not None:
+        if worker != "rust":
+            raise ValueError("A native binary can only replace the Rust worker")
+        argv = [str(binary.resolve())]
     with tempfile.TemporaryDirectory(prefix="jarvis-fake-capture-") as folder:
         root = Path(folder)
         capture = root / "pw-record"
@@ -150,6 +154,7 @@ while True: feed(silence)
             status = Path(f"/proc/{process.pid}/status").read_text()
             peak = next(float(l.split()[1]) / 1024 for l in status.splitlines() if l.startswith("VmHWM:"))
             return {"worker": worker, "denoise": denoise, "commands": commands, "load_seconds": load_seconds,
+                    "binary_sha256": hashlib.sha256(Path(argv[0]).read_bytes()).hexdigest() if worker == "rust" else None,
                     "loaded_rss_mib": loaded, "final_rss_mib": final, "peak_rss_mib": peak,
                     "command_rss_mib": command_rss, "cpu_seconds": cpu.user + cpu.system,
                     "elapsed_seconds": time.monotonic() - start}
@@ -172,6 +177,7 @@ def main():
     parser.add_argument("--denoise", action="store_true")
     parser.add_argument("--full-worker", action="store_true", help="Compare Vosk+Whisper and the capture loop with fake paced input")
     parser.add_argument("--before-rust", type=Path, help="Compare a saved older Rust worker with the current build")
+    parser.add_argument("--after-rust", type=Path, help="Measure a native build without installing it in the running checkout")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if not 1 <= args.repeats <= 20 or not 1 <= args.threads <= 32:
@@ -180,17 +186,17 @@ def main():
     if not 6400 <= len(audio) <= 320000 or len(audio) % 2:
         parser.error("fixture must be 0.2–10 seconds of s16le PCM")
     if args.full_worker:
-        if args.before_rust:
-            parser.error("--before-rust is for the isolated transcriber comparison")
         if args.threads != 8:
             parser.error("full-worker uses the configured default thread count")
-        python = worker_run("python", args.fixture, args.repeats, args.denoise)
-        rust = worker_run("rust", args.fixture, args.repeats, args.denoise)
-        paired = python["commands"] == rust["commands"] == ["ten meters"] * args.repeats
+        before = worker_run("rust" if args.before_rust else "python", args.fixture, args.repeats, args.denoise, args.before_rust)
+        after = worker_run("rust", args.fixture, args.repeats, args.denoise, args.after_rust)
+        paired = before["commands"] == after["commands"] == ["ten meters"] * args.repeats
         result = {"date": time.strftime("%Y-%m-%d", time.gmtime()), "platform": platform.platform(),
                   "fixture_sha256": hashlib.sha256(audio).hexdigest(), "commands_identical": paired,
                   "scope": "complete voice worker Vosk+Whisper with fake paced capture; excludes capture child, service, UI and real microphone; surrogate wake go forward and allowlisted ten meters command; no actions",
-                  "python": python, "rust": rust}
+                  "comparison": "before/after Rust" if args.before_rust else "Python/Rust",
+                  ("before" if args.before_rust else "python"): before,
+                  ("after" if args.before_rust else "rust"): after}
         rendered = json.dumps(result, indent=2) + "\n"
         if args.output:
             args.output.write_text(rendered)
@@ -200,7 +206,7 @@ def main():
         return
     if args.before_rust:
         before = rust_run(audio, args.repeats, args.denoise, args.threads, args.before_rust)
-        after = rust_run(audio, args.repeats, args.denoise, args.threads)
+        after = rust_run(audio, args.repeats, args.denoise, args.threads, args.after_rust)
         paired = all((a["case"], a["repeat"], a["text"]) == (b["case"], b["repeat"], b["text"])
                      for a, b in zip(before["cases"], after["cases"], strict=True))
         result = {"date": time.strftime("%Y-%m-%d", time.gmtime()), "platform": platform.platform(),
@@ -220,7 +226,7 @@ def main():
     if args.denoise:
         command.append("--denoise")
     python = json.loads(subprocess.check_output(command, text=True))
-    rust = rust_run(audio, args.repeats, args.denoise, args.threads)
+    rust = rust_run(audio, args.repeats, args.denoise, args.threads, args.after_rust)
     paired = all((a["case"], a["repeat"], a["text"]) == (b["case"], b["repeat"], b["text"])
                  for a, b in zip(python["cases"], rust["cases"], strict=True))
     result = {"date": time.strftime("%Y-%m-%d", time.gmtime()), "platform": platform.platform(),
