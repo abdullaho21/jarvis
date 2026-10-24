@@ -17,6 +17,12 @@ pub struct Grammar {
     pub prefixes: Vec<String>,
     #[serde(default)]
     pub overflow: Vec<String>,
+    #[serde(default)]
+    pub launches: serde_json::Map<String, Value>,
+    #[serde(default)]
+    pub brightness_names: serde_json::Map<String, Value>,
+    #[serde(default)]
+    pub blocked_apps: HashSet<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -49,7 +55,7 @@ pub struct Engine {
     transcriber: Option<Transcriber>,
     matcher: Matcher,
     sounds: HashMap<String, String>,
-    wake_name: Vec<String>,
+    wake_names: Vec<Vec<String>>,
     wake_phrase: String,
     sensitivity: f64,
     mode: Option<&'static str>,
@@ -195,11 +201,37 @@ impl Engine {
         let mut full: BTreeSet<String> = known.iter().cloned().collect();
         for v in &verbs {
             for a in &spoken_apps {
+                let original = sounds.get(a).unwrap_or(a);
+                if grammar.blocked_apps.contains(original)
+                    && !["focus", "switch to"].contains(&v.as_str())
+                {
+                    continue;
+                }
                 full.insert(format!("{v} {a}"));
+                full.insert(format!("{v} the {a}"));
+            }
+        }
+        for (p, alias) in &grammar.launches {
+            if let Some(alias) = alias.as_str() {
+                if let Some(prefix) = p.strip_suffix(alias) {
+                    let article = format!("{prefix}the {alias}");
+                    if article
+                        .split_whitespace()
+                        .all(|w| token(w) && model.knows(w))
+                    {
+                        full.insert(article);
+                    }
+                }
+                for (spoken, original) in &sounds {
+                    if original == alias && p.ends_with(alias) {
+                        full.insert(format!("{}{spoken}", &p[..p.len() - alias.len()]));
+                        full.insert(format!("{}the {spoken}", &p[..p.len() - alias.len()]));
+                    }
+                }
             }
         }
         for p in &prefixes {
-            for k in &known {
+            for k in known.iter().filter(|p| !jarvis_phrases::brightness_like(p)) {
                 full.insert(format!("{p} {k}"));
             }
         }
@@ -215,16 +247,28 @@ impl Engine {
                 .as_str()
                 .ok_or("Missing wake phrase")?,
         );
-        let mut wake_name: Vec<String> =
-            wake_phrase.split_whitespace().map(str::to_owned).collect();
-        if wake_name.len() > 1 && native.greetings.contains(&wake_name[0]) {
-            wake_name.remove(0);
-        }
+        let mut wake_names: Vec<Vec<String>> = wake_forms
+            .iter()
+            .filter_map(|f| {
+                let mut words: Vec<String> = f.split_whitespace().map(str::to_owned).collect();
+                if words.len() > 1 && native.greetings.contains(&words[0]) {
+                    words.remove(0);
+                }
+                (!words.is_empty()).then_some(words)
+            })
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        wake_names.sort_by_key(|n| std::cmp::Reverse(n.len()));
         let mut wake_grammar = wake_forms.clone();
-        wake_grammar.extend(full.iter().map(|c| format!("{} {c}", wake_forms[0])));
+        for name in &wake_names {
+            wake_grammar.extend(full.iter().map(|c| format!("{} {c}", name.join(" "))));
+        }
         let wake = Decoder::new(model.clone(), Some(wake_grammar), true)?;
         let command = Decoder::new(model.clone(), Some(full), true)?;
-        let open = if config["recognition"]["closest_match"].as_bool() == Some(true) {
+        let open = if config["recognition"]["closest_match"].as_bool() == Some(true)
+            || !grammar.brightness_names.is_empty()
+        {
             Some(Decoder::new(model, None, false)?)
         } else {
             None
@@ -244,6 +288,12 @@ impl Engine {
             prefixes: native.prefixes.clone(),
             suffixes: native.suffixes.clone(),
             candidates: native.candidates.clone(),
+            exact_only: config["recognition"]["closest_match"].as_bool() == Some(false),
+            rules: jarvis_phrases::Rules {
+                launches: grammar.launches.clone(),
+                monitors: grammar.brightness_names.clone(),
+            },
+            blocked_apps: grammar.blocked_apps.clone(),
         };
         Ok(Self {
             wake,
@@ -252,7 +302,7 @@ impl Engine {
             transcriber,
             matcher,
             sounds,
-            wake_name,
+            wake_names,
             wake_phrase,
             sensitivity: config["activation"]["sensitivity"]
                 .as_f64()
@@ -280,12 +330,32 @@ impl Engine {
         })
     }
     fn canonical(&self, text: &str) -> String {
+        if let Some(p) = self.matcher.rules.canonical(text) {
+            return p;
+        }
+        for (p, alias) in &self.matcher.rules.launches {
+            if let Some(alias) = alias.as_str() {
+                for (spoken, original) in &self.sounds {
+                    if original == alias
+                        && p.ends_with(alias)
+                        && [
+                            format!("{}{spoken}", &p[..p.len() - alias.len()]),
+                            format!("{}the {spoken}", &p[..p.len() - alias.len()]),
+                        ]
+                        .contains(&text.to_string())
+                    {
+                        return p.clone();
+                    }
+                }
+            }
+        }
         for verb in &self.matcher.verbs {
-            if let Some(name) = text
-                .strip_prefix(&format!("{verb} "))
-                .and_then(|a| self.sounds.get(a))
-            {
-                return format!("{verb} {name}");
+            if let Some(name) = text.strip_prefix(&format!("{verb} ")) {
+                let name = name.strip_prefix("the ").unwrap_or(name);
+                return format!(
+                    "{verb} {}",
+                    self.sounds.get(name).map_or(name, String::as_str)
+                );
             }
         }
         text.to_owned()
@@ -412,12 +482,12 @@ impl Engine {
             })
             .unwrap_or_default();
         let spoken: Vec<_> = words.iter().map(|w| w["word"].as_str().unwrap()).collect();
-        let size = self.wake_name.len();
-        let Some(position) = (0..3).find(|&i| {
-            spoken.get(i..i + size).is_some_and(|s| {
-                s.iter()
-                    .copied()
-                    .eq(self.wake_name.iter().map(String::as_str))
+        let Some((position, size)) = (0..3).find_map(|i| {
+            self.wake_names.iter().find_map(|name| {
+                spoken
+                    .get(i..i + name.len())
+                    .filter(|s| s.iter().copied().eq(name.iter().map(String::as_str)))
+                    .map(|_| (i, name.len()))
             })
         }) else {
             return Ok(None);

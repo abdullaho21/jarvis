@@ -233,6 +233,8 @@ impl Registry {
                     for name in [app.name.clone(), stem(&id)] {
                         if let Ok(n) = normalize(&name) {
                             indexed.insert(spoken_numbers(&n));
+                            indexed.insert(n.strip_prefix("the ").unwrap_or(&n).to_owned());
+                            indexed.insert(spoken_numbers(n.strip_prefix("the ").unwrap_or(&n)));
                             indexed.insert(n);
                         }
                     }

@@ -30,3 +30,5 @@ src/murmur/bin/
 .claude/
 # Holding area for files removed during review; delete when no longer needed.
 _to_delete/
+
+native/command-phrases/target/

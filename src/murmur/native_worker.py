@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import sys
 
-from .commands import GREETINGS, POLITE_PREFIXES, POLITE_SUFFIXES, match_candidates, wake_variants
+from .commands import GREETINGS, POLITE_PREFIXES, POLITE_SUFFIXES, match_candidates, all_wake_variants
 from .models import (ACCURATE_MODELS, DEFAULT_ACCURATE_MODEL, accurate_model_dir,
                      accurate_model_ready, default_model_path, denoiser_path, valid_model)
 
@@ -48,8 +48,8 @@ def prepare(config: dict, mode: str, grammar: dict) -> tuple[list[str], dict, di
     native = {"vosk_library": str(vosk / "libvosk.so") if vosk else "",
               "model_path": str(model), "whisper": None, "denoiser": None,
               "threads": max(1, min(8, (os.cpu_count() or 2) // 2)),
-              "candidates": list(match_candidates(grammar).items()) if settings["closest_match"] else [],
-              "wake_forms": wake_variants(config["activation"]["wake_phrase"]),
+              "candidates": list(match_candidates(grammar).items()),
+              "wake_forms": all_wake_variants(config["activation"]),
               "greetings": list(GREETINGS), "prefixes": list(POLITE_PREFIXES),
               "suffixes": list(POLITE_SUFFIXES)}
     if settings["accurate"] and accurate_model_ready():

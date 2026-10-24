@@ -30,7 +30,7 @@ class Service:
     def __init__(self, config=None):
         self.config = configuration.validate(config) if config is not None else configuration.load()
         self.apps = AppRegistry(self.config["aliases"])
-        self.parser = Parser(self.config["commands"])
+        self.parser = Parser.from_config(self.config)
         a = self.config["activation"]
         self.activation = Activation(a["command_timeout"], a["confidence"])
         self.desktop = Hyprland()
@@ -56,7 +56,7 @@ class Service:
         self.engine = None
         self.gate = None
         self.dispatcher = Dispatcher(self.apps, self.desktop, self.recorder, self.pause_from_action, self.open_ui,
-                                     replay=self.replay)
+                                     replay=self.replay, config=self.config)
 
     def status(self):
         return {"state": self.activation.state, "message": self.message, "muted": self.muted,
@@ -335,6 +335,9 @@ class Service:
             return {"ok": True, "devices": await asyncio.to_thread(devices)}
         if op == "recording_devices":
             return {"ok": True, "devices": [{"id": d["name"], "name": d["description"], "monitor": d["monitor"]} for d in await asyncio.to_thread(audio_sources)]}
+        if op == "brightness_monitors":
+            from .brightness import inventory
+            return {"ok": True, "monitors": await asyncio.to_thread(inventory)}
         if op == "monitors":
             return {"ok": True, "monitors": await asyncio.to_thread(self.recorder.sources)}
         if op == "mute":
@@ -361,7 +364,7 @@ class Service:
                     self.activation.pause()
         elif op == "save_config":
             c = configuration.validate(payload["config"])
-            Parser(c["commands"])
+            Parser.from_config(c)
             if self.recorder.status()["state"] in ("recording", "stopping") and c["recording"] != self.config["recording"]:
                 raise CommandError("Stop recording before changing capture settings")
             if self.replay.status()["state"] in ("on", "stopping") and (
@@ -371,9 +374,10 @@ class Service:
                 raise CommandError("Stop instant replay before changing capture settings")
             was_onboarded = self.config["privacy"]["onboarded"]
             self.config = await asyncio.to_thread(configuration.save, c)
-            self.parser = Parser(c["commands"])
+            self.parser = Parser.from_config(c)
             self.apps = await asyncio.to_thread(AppRegistry, c["aliases"])
             self.dispatcher.apps = self.apps
+            self.dispatcher.config = self.config
             self.recorder.config = self.replay.config = self.config
             a = c["activation"]
             self.activation.timeout, self.activation.confidence = a["command_timeout"], a["confidence"]

@@ -13,7 +13,7 @@ def socket_path() -> str:
 
 # Operations that can legitimately take longer than a status query. Stopping a
 # recording waits up to ~16 s for wf-recorder, then validates the file with ffprobe.
-TIMEOUTS = {"record_stop": 45, "record_start": 20, "execute": 45, "save_config": 30,
+TIMEOUTS = {"brightness_monitors": 150, "record_stop": 45, "record_start": 20, "execute": 45, "save_config": 30,
             "replay_save": 45, "replay_start": 20, "set_startup": 15, "apps": 20}
 
 

@@ -59,6 +59,9 @@ pub struct Matcher {
     pub prefixes: Vec<String>,
     pub suffixes: Vec<String>,
     pub candidates: Vec<(String, String)>,
+    pub exact_only: bool,
+    pub rules: jarvis_phrases::Rules,
+    pub blocked_apps: HashSet<String>,
 }
 
 impl Matcher {
@@ -72,6 +75,13 @@ impl Matcher {
         heard_match: Option<(String, f64)>,
     ) -> Option<crate::engine::Recognition> {
         use crate::engine::Recognition;
+        if jarvis_phrases::brightness_like(text) {
+            let (p, score) = heard_match?;
+            if !jarvis_phrases::brightness_like(&p) {
+                return None;
+            }
+            return Some(Recognition::new("command", p, Some(score)));
+        }
         if !text.is_empty() && !text.contains("[unk]") && self.accepts(text) {
             let strict_intent = self.intent(&wording(text, &self.prefixes, &self.suffixes));
             let disagreement = heard_match
@@ -108,10 +118,17 @@ impl Matcher {
         self.core(&text) || self.core(&strip_courtesy(&text, &self.prefixes, &self.suffixes))
     }
     fn core(&self, text: &str) -> bool {
+        if self.rules.parse(text).is_some() {
+            return true;
+        }
         self.phrases.contains(text)
             || self.verbs.iter().any(|v| {
-                text.strip_prefix(&format!("{v} "))
-                    .is_some_and(|a| self.apps.contains(a))
+                text.strip_prefix(&format!("{v} ")).is_some_and(|a| {
+                    let a = a.strip_prefix("the ").unwrap_or(a);
+                    self.apps.contains(a)
+                        && (!self.blocked_apps.contains(a)
+                            || ["focus", "switch to"].contains(&v.as_str()))
+                })
             })
     }
     pub fn intent(&self, text: &str) -> Option<&str> {
@@ -128,7 +145,35 @@ impl Matcher {
                 .rsplit_once(' ')
                 .map_or(heard.clone(), |(p, _)| p.to_owned());
         }
-        let text = wording(&heard, &self.prefixes, &self.suffixes);
+        let literal = jarvis_phrases::normalize(&heard);
+        if !jarvis_phrases::brightness_like(&literal) {
+            if let Some(p) = self.rules.canonical(&literal) {
+                return self.intent(&p).map(|_| (p, 1.0));
+            }
+            if self.intent(&literal).is_some() {
+                return Some((literal, 1.0));
+            }
+        }
+        let mut text = wording(&heard, &self.prefixes, &self.suffixes);
+        if jarvis_phrases::brightness_like(&text) {
+            if jarvis_phrases::invalid_number(&heard) {
+                return None;
+            }
+            let p = self.rules.canonical(&text)?;
+            return self.intent(&p).map(|_| (p, 1.0));
+        }
+        if let Some(p) = self.rules.canonical(&text) {
+            return self.intent(&p).map(|_| (p, 1.0));
+        }
+        for verb in &self.verbs {
+            if let Some(rest) = text.strip_prefix(&format!("{verb} the ")) {
+                text = format!("{verb} {rest}");
+                break;
+            }
+        }
+        if self.intent(&text).is_some() {
+            return Some((text, 1.0));
+        }
         if text.chars().count() > 256 {
             return None;
         }
@@ -147,6 +192,12 @@ impl Matcher {
             })
             .collect::<Vec<_>>()
             .join(" ");
+        if self.intent(&text).is_some() {
+            return Some((text, 1.0));
+        }
+        if self.exact_only {
+            return None;
+        }
         let whole = text.replace(' ', "");
         if whole.chars().count() < 3 {
             return None;
@@ -173,6 +224,9 @@ impl Matcher {
         let letters: Vec<_> = windows.iter().map(|w| counts(w)).collect();
         let mut intents: HashMap<&str, (f64, &str)> = HashMap::new();
         for (candidate, intent) in &self.candidates {
+            if intent.starts_with("brightness_") {
+                continue;
+            }
             let target: Vec<char> = candidate.chars().filter(|&c| c != ' ').collect();
             let target_letters = counts(&target);
             let mut best: f64 = 0.0;
@@ -260,6 +314,9 @@ mod tests {
             verbs: vec![],
             prefixes: vec![],
             suffixes: vec![],
+            exact_only: false,
+            rules: Default::default(),
+            blocked_apps: Default::default(),
             candidates: vec![
                 ("launch deadlock".into(), "deadlock".into()),
                 ("launch discord".into(), "discord".into()),
@@ -329,6 +386,9 @@ mod tests {
             verbs: vec![],
             prefixes: vec![],
             suffixes: vec![],
+            exact_only: false,
+            rules: Default::default(),
+            blocked_apps: Default::default(),
             candidates: vec![
                 ("open steam".into(), "steam".into()),
                 ("open stream".into(), "stream".into()),

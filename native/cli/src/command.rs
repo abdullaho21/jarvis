@@ -221,6 +221,9 @@ pub async fn alias(name: Option<String>, app: Option<String>, remove: bool) -> R
         {
             return err(format!("No voice name “{name}”"));
         }
+        if let Some(prefixes) = config["app_prefixes"].as_object_mut() {
+            prefixes.remove(&name);
+        }
         format!("Removed “{name}”.")
     } else {
         let query = app.ok_or("Say which app, e.g.: jarvis alias streamio stremio")?;

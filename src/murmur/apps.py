@@ -139,7 +139,7 @@ class AppRegistry:
                         normalized = normalize(name)
                     except ValueError:
                         continue
-                    for variant in {normalized, spoken_numbers(normalized)}:
+                    for variant in {normalized, spoken_numbers(normalized), normalized.removeprefix("the "), spoken_numbers(normalized.removeprefix("the "))}:
                         if variant and variant not in indexed_names:
                             index.setdefault(variant, []).append(a)
                             indexed_names.add(variant)

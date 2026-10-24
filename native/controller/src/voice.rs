@@ -1,6 +1,6 @@
 use crate::{
     err,
-    policy::{wake_forms, Parser, TABLES},
+    policy::{all_wake_forms, Parser, TABLES},
     util, Result,
 };
 use serde_json::{json, Value};
@@ -127,16 +127,12 @@ pub fn prepare(
     } else {
         Value::Null
     };
-    let candidates = if config["recognition"]["closest_match"] == true {
-        parser.candidates(&grammar)?
-    } else {
-        json!([])
-    };
+    let candidates = parser.candidates(&grammar)?;
     let threads = std::thread::available_parallelism()
         .map(usize::from)
         .unwrap_or(2)
         / 2;
-    let native = json!({"vosk_library":library.unwrap_or_default(),"model_path":model,"whisper":files,"denoiser":denoiser,"threads":threads.clamp(1,8),"candidates":candidates,"wake_forms":wake_forms(config["activation"]["wake_phrase"].as_str().unwrap())?,"greetings":TABLES["GREETINGS"],"prefixes":TABLES["POLITE_PREFIXES"],"suffixes":TABLES["POLITE_SUFFIXES"]});
+    let native = json!({"vosk_library":library.unwrap_or_default(),"model_path":model,"whisper":files,"denoiser":denoiser,"threads":threads.clamp(1,8),"candidates":candidates,"wake_forms":all_wake_forms(config)?,"greetings":TABLES["GREETINGS"],"prefixes":TABLES["POLITE_PREFIXES"],"suffixes":TABLES["POLITE_SUFFIXES"]});
     Ok((
         worker,
         json!({"config":config,"mode":mode,"grammar":grammar,"native":native}),

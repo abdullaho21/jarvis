@@ -73,6 +73,8 @@ pub fn spoken_numbers(text: &str) -> String {
 #[derive(Clone, Debug)]
 pub struct Parser {
     pub custom: Value,
+    pub rules: jarvis_phrases::Rules,
+    pub blocked_apps: BTreeSet<String>,
 }
 impl Parser {
     pub fn new(custom: &Value) -> Result<Self> {
@@ -92,13 +94,49 @@ impl Parser {
         }
         Ok(Self {
             custom: Value::Object(output),
+            rules: jarvis_phrases::Rules::default(),
+            blocked_apps: BTreeSet::new(),
         })
+    }
+    pub fn from_config(c: &Value) -> Result<Self> {
+        let mut parser = Self::new(&c["commands"])?;
+        let rules = jarvis_phrases::Rules::from_config(c).map_err(std::io::Error::other)?;
+        for phrase in parser.custom.as_object().unwrap().keys() {
+            if jarvis_phrases::brightness_like(phrase) || rules.parse(phrase).is_some() {
+                return err("Command shortcut conflicts with a configured voice control");
+            }
+        }
+        for phrase in rules.launches.keys() {
+            if let Ok(original) = parser.parse(phrase) {
+                if !["open_app", "focus_app"].contains(&original["action"].as_str().unwrap_or(""))
+                    || parser.custom.get(phrase).is_some()
+                {
+                    return err("Application shortcut conflicts with an existing command");
+                }
+            }
+        }
+        parser.rules = rules;
+        parser.blocked_apps = c["app_prefixes"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|k| normalize(k))
+            .collect::<Result<_>>()?;
+        Ok(parser)
     }
     pub fn parse(&self, text: &str) -> Result<Value> {
         static SIGNED: LazyLock<regex::Regex> =
             LazyLock::new(|| regex::Regex::new(r"(?i)workspace\s+[+-]\s*\w").unwrap());
         if SIGNED.is_match(text) {
             return err("Use an unsigned workspace number one through ten");
+        }
+        if jarvis_phrases::brightness_like(&normalize(text)?)
+            && jarvis_phrases::invalid_number(text)
+        {
+            return err("Brightness must be a whole unsigned percentage from zero to 100");
+        }
+        if let Some(intent) = self.rules.parse(text) {
+            return Ok(intent);
         }
         let mut phrase = normalize(text)?;
         if self.custom.get(&phrase).is_none() {
@@ -117,6 +155,12 @@ impl Parser {
             .to_owned();
         if let Some(intent) = TABLES["FIXED"].get(&phrase) {
             return Ok(intent.clone());
+        }
+        if let Some(intent) = self.rules.parse(&phrase) {
+            return Ok(intent);
+        }
+        if jarvis_phrases::brightness_like(&phrase) {
+            return err("Choose a configured monitor and a percentage from zero to 100");
         }
         for (form, action) in TABLES["WORKSPACE_FORMS"].as_object().unwrap() {
             if let Some(number) = phrase.strip_prefix(&format!("{form} ")) {
@@ -143,6 +187,10 @@ impl Parser {
         verbs.sort_by_key(|(verb, _)| std::cmp::Reverse(verb.len()));
         for (verb, action) in verbs {
             if let Some(target) = phrase.strip_prefix(&format!("{verb} ")) {
+                let target = target.strip_prefix("the ").unwrap_or(target);
+                if action == "open_app" && self.blocked_apps.contains(target) {
+                    return err("Use the launch word configured for this application name");
+                }
                 if !target.is_empty() {
                     return Ok(json!({"action":action,"target":target}));
                 }
@@ -156,6 +204,7 @@ impl Parser {
             core.extend(TABLES[key].as_object().unwrap().keys().cloned());
         }
         core.extend(self.custom.as_object().unwrap().keys().cloned());
+        core.extend(self.rules.phrases());
         for form in TABLES["WORKSPACE_FORMS"].as_object().unwrap().keys() {
             for number in TABLES["NUMBERS"].as_object().unwrap().keys() {
                 core.insert(format!("{form} {number}"));
@@ -175,7 +224,7 @@ impl Parser {
             .cloned()
             .collect();
         verbs.sort();
-        json!({"phrases":core,"apps":apps.iter().take(2048).collect::<Vec<_>>(),"custom":self.custom,"verbs":verbs,"prefixes":TABLES["POLITE_PREFIXES"],"suffixes":[],"overflow":apps.iter().skip(2048).map(|s|format!("open {s}")).collect::<Vec<_>>()})
+        json!({"launches":self.rules.launches,"brightness_names":self.rules.monitors,"blocked_apps":self.blocked_apps,"phrases":core,"apps":apps.iter().take(2048).collect::<Vec<_>>(),"custom":self.custom,"verbs":verbs,"prefixes":TABLES["POLITE_PREFIXES"],"suffixes":[],"overflow":apps.iter().skip(2048).map(|s|format!("open {s}")).collect::<Vec<_>>()})
     }
     pub fn candidates(&self, grammar: &Value) -> Result<Value> {
         let mut phrases = strings(&grammar["phrases"]);
@@ -224,6 +273,17 @@ pub fn wake_forms(text: &str) -> Result<Vec<String>> {
     } else {
         Ok(vec![normalized])
     }
+}
+
+pub fn all_wake_forms(config: &Value) -> Result<Vec<String>> {
+    let mut forms = BTreeSet::new();
+    forms.extend(wake_forms(
+        config["activation"]["wake_phrase"].as_str().unwrap(),
+    )?);
+    for name in strings(&config["activation"]["wake_aliases"]) {
+        forms.extend(wake_forms(&name)?);
+    }
+    Ok(forms.into_iter().collect())
 }
 
 #[derive(Clone)]

@@ -38,8 +38,9 @@ async fn connection(
         let bytes=timeout(Duration::from_secs(5),util::line(&mut reader,65536)).await??.ok_or("Request must be a JSON object")?;
         let payload:Value=serde_json::from_slice(&bytes)?;if !payload.is_object(){return err("Request must be a JSON object");}
         if payload["op"]=="watch"{let initial=status.borrow_and_update().clone();write_json(&mut write,&initial).await?;let mut byte=[0];loop{tokio::select!{_=reader.read(&mut byte)=>break,changed=status.changed()=>{if changed.is_err(){break;}let value=status.borrow_and_update().clone();write_json(&mut write,&value).await?;}}}return Ok(());}
+        let wait_seconds = if payload["op"] == "brightness_monitors" { 150 } else { 60 };
         let (reply,rx)=oneshot::channel();events.send(service::Message::Request(payload,reply)).await.map_err(|_|"Service is stopping")?;
-        let response=timeout(Duration::from_secs(60),rx).await??;write_json(&mut write,&response).await?;Ok::<_,Error>(())
+        let response=timeout(Duration::from_secs(wait_seconds),rx).await??;write_json(&mut write,&response).await?;Ok::<_,Error>(())
     }.await;
     if let Err(error) = result {
         let _ = write_json(&mut write, &json!({"ok":false,"error":error.to_string()})).await;
@@ -103,13 +104,14 @@ async fn serve() -> Result<()> {
                     });
                     continue;
                 }
-                if matches!(payload["op"].as_str(),Some("devices"|"recording_devices"|"monitors")) {
+                if matches!(payload["op"].as_str(),Some("devices"|"recording_devices"|"monitors"|"brightness_monitors")) {
                     // Discovery can wait on an external server. Keep those
                     // queries outside the state actor so mute stays responsive.
                     tokio::spawn(async move {
                         let result:Result<Value>=async {
                             match payload["op"].as_str().unwrap(){
                                 "devices"=>Ok(json!({"ok":true,"devices":desktop::devices().await?})),
+                                "brightness_monitors"=>Ok(json!({"ok":true,"monitors":jarvis_controller::brightness::inventory().await?})),
                                 "monitors"=>Ok(json!({"ok":true,"monitors":desktop::monitors().await?})),
                                 _=>{let devices=desktop::audio_sources().await?;Ok(json!({"ok":true,"devices":devices.as_array().unwrap().iter().map(|d|json!({"id":d["name"],"name":d["description"],"monitor":d["monitor"]})).collect::<Vec<_>>()}))}
                             }
@@ -151,10 +153,10 @@ fn diagnostic(request: &Value) -> Result<Value> {
         ),
         "validate" => Ok(json!({"config":config::validate(&request["config"])?})),
         "parse" => Ok(
-            json!({"intent":policy::Parser::new(request.get("custom").unwrap_or(&json!({})))?.parse(request["text"].as_str().ok_or("Phrase must be text")?)?}),
+            json!({"intent":(if let Some(c) = request.get("config") { policy::Parser::from_config(&config::validate(c)?)? } else { policy::Parser::new(request.get("custom").unwrap_or(&json!({})))? }).parse(request["text"].as_str().ok_or("Phrase must be text")?)?}),
         ),
         "grammar" => Ok(
-            json!({"grammar":policy::Parser::new(request.get("custom").unwrap_or(&json!({})))?.grammar(policy::strings(&request["apps"]))}),
+            json!({"grammar":(if let Some(c) = request.get("config") { policy::Parser::from_config(&config::validate(c)?)? } else { policy::Parser::new(request.get("custom").unwrap_or(&json!({})))? }).grammar(policy::strings(&request["apps"]))}),
         ),
         "apps" => {
             let roots = request["roots"].as_array().map(|r| {
@@ -225,7 +227,7 @@ fn run() -> Result<()> {
     if args == ["--check"] {
         let config = config::load()?;
         let apps = apps::Registry::scan(&config["aliases"], None);
-        let parser = policy::Parser::new(&config["commands"])?;
+        let parser = policy::Parser::from_config(&config)?;
         let (worker, payload) =
             voice::prepare(&config, "wake_word", &parser, apps.grammar(&parser)?)?;
         println!(

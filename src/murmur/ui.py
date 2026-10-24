@@ -75,7 +75,7 @@ def _button(text: str, callback: Callable, css: str = "") -> Any:
     return widget
 
 
-PAGES = {"dashboard", "commands", "applications", "recording", "clips", "voice", "privacy"}
+PAGES = {"dashboard", "commands", "applications", "recording", "clips", "voice", "privacy", "displays"}
 
 
 class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
@@ -153,6 +153,7 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         self._dashboard()
         self._commands_page()
         self._applications_page()
+        self._displays_page()
         self._recording_page()
         self._clips_page()
         self._voice_page()
@@ -178,7 +179,7 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         scroller.set_child(body)
         self.stack.add_titled(scroller, name, {
             "dashboard": "Overview", "commands": "Commands", "applications": "Applications", "clips": "Clips",
-            "recording": "Recorder", "voice": "Voice & microphone", "privacy": "Privacy & startup",
+            "displays": "Displays", "recording": "Recorder", "voice": "Voice & microphone", "privacy": "Privacy & startup",
         }[name])
         return body
 
@@ -332,10 +333,96 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         self.alias_app.set_enable_search(True)
         self._alias_model_ids: tuple = ()
         self.alias_app.update_property([Gtk.AccessibleProperty.LABEL], ["Installed application for alias"])
+        self.alias_prefix = self._entry("Launch word (leave empty to say only the app name)")
+        self.alias_prefix.set_text("open")
+        self._row(aliases, "Launch word", self.alias_prefix, "Change open to another word, or clear it. The wake name is still required.")
         aliases.append(self.alias_name)
         aliases.append(self.alias_app)
         aliases.append(_button("Add application alias", self._add_alias))
         body.append(aliases)
+
+    def _displays_page(self) -> None:
+        body = self._page("displays", "Brightness by name.", "Name each monitor, then say ‘Alfred, set KTC brightness to sixty seven percent’ or ‘Jarvis, dim Samsung’.")
+        card = self._card("Your monitors", "Choose a name and optional aliases for each display. Save names before using voice commands or Apply brightness.")
+        self.display_help = _label("Refresh to find monitors with DDC/CI brightness controls.", "caption")
+        card.append(self.display_help)
+        card.append(_button("Refresh monitors", self._refresh_displays))
+        self.display_list = _box(16)
+        self._brightness_monitors = []
+        self._display_editors = {}
+        card.append(self.display_list)
+        self.brightness_step = self._spin(1, 100, 1)
+        self.brightness_step.set_value(10)
+        self._row(card, "Brighten / dim step (%)", self.brightness_step, "Used when you do not specify an absolute percentage.")
+        card.append(_button("Save monitor names", self._save_displays, "primary"))
+        body.append(card)
+
+    def _refresh_displays(self) -> None:
+        self.display_help.set_text("Looking for monitors… You can keep using the other pages.")
+        self._work(lambda: client.request("brightness_monitors"), self._got_displays)
+
+    def _got_displays(self, response: dict) -> None:
+        self._brightness_monitors = response.get("monitors", []) if response.get("ok") else []
+        self.display_help.set_text("Name your displays below. Enable DDC/CI in each monitor’s menu." if response.get("ok") else str(response.get("error", "Could not discover monitors")))
+        self._render_displays()
+
+    def _render_displays(self) -> None:
+        self._clear(self.display_list)
+        self._display_editors = {}
+        settings = self.config.get("brightness", {"monitors": {}, "default": "", "step": 10})
+        self.brightness_step.set_value(settings["step"])
+        found = {m["id"]: m for m in self._brightness_monitors}
+        for identity in dict.fromkeys([*settings["monitors"], *found]):
+            monitor = found.get(identity, {})
+            saved = settings["monitors"].get(identity, {})
+            row = self._card(str(monitor.get("label", saved.get("name", identity))), "Connected" if monitor else "Saved monitor — disconnected or discovery unavailable")
+            name = self._entry("Name, e.g. KTC or Samsung; blank = do not configure")
+            name.set_text(saved.get("name", ""))
+            aliases = self._entry("Other names, separated by commas; e.g. k t c")
+            aliases.set_text(", ".join(saved.get("aliases", [])))
+            default = Gtk.CheckButton(label="Use for ‘dim’, ‘brighten’, and ‘main’")
+            default.set_active(settings["default"] == identity)
+            default.connect("toggled", lambda control, key=identity: self._display_default_changed(control, key))
+            self._row(row, "Voice name", name)
+            self._row(row, "Other names", aliases)
+            row.append(default)
+            if monitor and not monitor.get("stable", True):
+                row.append(_label("No unique serial reported: this name is tied to the current connection. Check it after reconnecting.", "caption"))
+            if monitor.get("error") or monitor.get("ambiguous"):
+                row.append(_label(str(monitor.get("error", "Duplicate monitor identity; brightness cannot be changed safely.")), "caption"))
+            percent = self._spin(0, 100, 1)
+            percent.set_value(monitor.get("percent", 50))
+            self._row(row, "Brightness (%)", percent)
+            apply = _button("Apply brightness", lambda key=identity, control=percent: self._apply_brightness(key, control.get_value_as_int()))
+            apply.set_sensitive(bool(monitor) and not monitor.get("error") and not monitor.get("ambiguous"))
+            row.append(apply)
+            self._display_editors[identity] = (name, aliases, default)
+            self.display_list.append(row)
+        if not self._display_editors:
+            self.display_list.append(_label("No monitors found. Install ddcutil, enable DDC/CI, and check access to /dev/i2c-*.", "caption"))
+
+    def _display_default_changed(self, control: Any, identity: str) -> None:
+        if control.get_active():
+            for key, (_, _, other) in self._display_editors.items():
+                if key != identity:
+                    other.set_active(False)
+
+    def _save_displays(self) -> None:
+        monitors, default = {}, ""
+        for identity, (name, aliases, primary) in self._display_editors.items():
+            if name.get_text().strip():
+                monitors[identity] = {"name": name.get_text().strip(), "aliases": [a.strip() for a in aliases.get_text().split(",") if a.strip()]}
+                if primary.get_active():
+                    default = identity
+        self._save({"brightness": {"monitors": monitors, "default": default, "step": self.brightness_step.get_value_as_int()}}, "Monitor names saved. Voice brightness controls are ready.", replace_keys=("brightness",))
+
+    def _apply_brightness(self, identity: str, percent: int) -> None:
+        saved = self.config.get("brightness", {}).get("monitors", {}).get(identity)
+        if not saved:
+            self._notice("Give this monitor a name and save monitor names first.", True)
+            return
+        phrase = f"set {saved['name']} brightness to {percent} percent"
+        self._work(lambda: client.request("execute", phrase=phrase), lambda result: self._notice(str(result.get("message", result.get("error", "Brightness updated"))), not result.get("ok", False)))
 
     def _recording_page(self) -> None:
         body = self._page("recording", "Keep the moment.", "Set up once, then start and stop recording with your voice.")
@@ -508,7 +595,9 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         self.activation = Gtk.DropDown.new_from_strings(["Push-to-talk / listen once", "Wake word (continuous microphone)"])
         self._row(activation, "Listen when", self.activation)
         self.wake_phrase = self._entry("hey jarvis")
-        self._row(activation, "Wake phrase", self.wake_phrase, "Keep it short and distinct from everyday game audio")
+        self._row(activation, "Primary wake name", self.wake_phrase, "Keep it short and distinct from everyday game audio")
+        self.wake_aliases = self._entry("Jarvis, Alfred")
+        self._row(activation, "Additional wake names", self.wake_aliases, "Separate names with commas. Every name works; up to eight names including the primary.")
         body.append(activation)
         microphone = self._card("Microphone", "The level test opens the microphone only while the test is enabled. It stops when this window closes.")
         self.device = Gtk.DropDown.new_from_strings(["Default microphone"])
@@ -525,7 +614,7 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         microphone.append(self.test_button)
         microphone.append(_button("Refresh microphones & displays", self._refresh_devices))
         body.append(microphone)
-        recognizer = self._card("Recognizer", "Vosk listens for “Jarvis”. After it, the accurate model (Whisper small) writes "
+        recognizer = self._card("Recognizer", "Vosk listens for your wake names. After it, the accurate model (Whisper small) writes "
                                 "down your command; it copes much better with accents. One-time download of about 680 MB; "
                                 "uses about 800 MB of RAM while the microphone is on. Everything stays on this computer.")
         self.engine_label = _label("Recognizer: not running", "row-title")
@@ -650,6 +739,7 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         self.voice_grammar_notice.set_visible(False)
         self._render_apps()
         self._render_aliases()
+        self._render_displays()
         self._render_commands(result.get("commands", {}).get("commands", []))
         self._render_phrases()
         self._set_status(result)
@@ -814,6 +904,7 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         recorder = self.config.get("recording", {})
         self.activation.set_selected(0 if activation.get("mode") == "push_to_talk" else 1)
         self.wake_phrase.set_text(str(activation.get("wake_phrase", "hey jarvis")))
+        self.wake_aliases.set_text(", ".join(activation.get("wake_aliases", [])))
         self.sensitivity.set_value(float(activation.get("sensitivity", .5)))
         self.timeout.set_value(float(activation.get("command_timeout", 8)))
         self.confidence.set_value(float(activation.get("confidence", .35)))
@@ -952,7 +1043,7 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
     def _voice_name_editor(self, app: dict) -> Any:
         """Per-app "Add voice name": click, type a name, press Enter. Done."""
         app_id = str(app.get("id", ""))
-        box = _box(8, True)
+        box = _box(8)
         names = sorted(name for name, target in self.config.get("aliases", {}).items() if target == app_id)
         if names:
             label = _label("Voice names: " + ", ".join(f"“{n}”" for n in names), "caption")
@@ -960,27 +1051,37 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
             box.append(label)
         entry = self._entry("Voice name, e.g. " + str(app.get("name", "my app")).lower())
         entry.update_property([Gtk.AccessibleProperty.LABEL], [f"Voice name for {app.get('name', app_id)}"])
-        save = _button("Save", lambda: self._save_voice_name(app_id, entry), "primary")
-        entry.connect("activate", lambda _entry: self._save_voice_name(app_id, entry))
+        prefix = self._entry("Launch word; empty = app name only")
+        prefix.set_text("open")
+        prefix.update_property([Gtk.AccessibleProperty.LABEL], ["Launch word; clear for app name only"])
+        save = _button("Save", lambda: self._save_voice_name(app_id, entry, prefix), "primary")
+        entry.connect("activate", lambda _entry: self._save_voice_name(app_id, entry, prefix))
         entry.set_visible(False)
+        prefix.set_visible(False)
+        launch_hint = _label("Launch word: change open, or clear it to say only the app name after a wake name.", "caption")
+        launch_hint.set_visible(False)
         save.set_visible(False)
         def reveal() -> None:
             add.set_visible(False)
             entry.set_visible(True)
+            prefix.set_visible(True)
+            launch_hint.set_visible(True)
             save.set_visible(True)
             entry.grab_focus()
         add = _button("Add voice name", reveal)
-        for widget in (add, entry, save):
+        for widget in (add, entry, launch_hint, prefix, save):
             box.append(widget)
         return box
 
-    def _save_voice_name(self, app_id: str, entry: Any) -> None:
+    def _save_voice_name(self, app_id: str, entry: Any, prefix: Any) -> None:
         phrase = " ".join(entry.get_text().lower().split())
         if not phrase:
             self._notice("Type the name you want to say for this app.", True)
             return
         wake = str(self.config.get("activation", {}).get("wake_phrase", "jarvis")).capitalize()
-        self._save({"aliases": {phrase: app_id}}, f"Saved. Say “{wake}, open {phrase}”.")
+        launch = normalize(prefix.get_text())
+        wording = " ".join(word for word in (launch, phrase) if word)
+        self._save({"aliases": {phrase: app_id}, "app_prefixes": {phrase: launch}}, f"Saved. Say “{wake}, {wording}”.")
 
     def _render_aliases(self) -> None:
         self._clear(self.alias_list)
@@ -989,6 +1090,13 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
             label = _label(f"“{name}” → {app_id}")
             label.set_hexpand(True)
             row.append(label)
+            prefix = self._entry("Empty = app name only")
+            prefix.set_text(self.config.get("app_prefixes", {}).get(name, "open"))
+            prefix.set_width_chars(12)
+            prefix.set_hexpand(False)
+            prefix.update_property([Gtk.AccessibleProperty.LABEL], [f"Launch word for {name}; clear for name only"])
+            row.append(prefix)
+            row.append(_button("Save word", lambda phrase=name, control=prefix: self._save({"app_prefixes": {phrase: normalize(control.get_text())}}, "Launch word saved. A blank word lets you say the app name after your wake name.")))
             row.append(_button("Remove", lambda phrase=name: self._remove_mapping("aliases", phrase)))
             self.alias_list.append(row)
         if not self.config.get("aliases"):
@@ -1031,6 +1139,8 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
             self._render_aliases()
             self._render_phrases()
             self._render_apps()
+            if "brightness" in patch:
+                self._render_displays()
             if patch.get("privacy", {}).get("onboarded"):
                 self.onboard_button.set_label("Privacy setup complete")
                 self.onboard_button.set_sensitive(False)
@@ -1048,7 +1158,8 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
                     "audio": {"device": device, "vad_rms": self.vad_rms.get_value(),
                               "adaptive_gate": self.adaptive_gate.get_active()}, "activation": {
             "mode": "wake_word" if self.activation.get_selected() == 1 else "push_to_talk",
-            "wake_phrase": self.wake_phrase.get_text().strip().lower(), "sensitivity": self.sensitivity.get_value(),
+            "wake_phrase": self.wake_phrase.get_text().strip().lower(),
+            "wake_aliases": [name.strip() for name in self.wake_aliases.get_text().split(",") if name.strip()], "sensitivity": self.sensitivity.get_value(),
             "command_timeout": self.timeout.get_value_as_int(), "confidence": self.confidence.get_value(),
         }}, "Voice settings saved. Use Listen once, or unmute to enable the selected activation mode.")
 
@@ -1113,7 +1224,7 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         if not phrase or index >= len(self._apps):
             self._notice("Enter an alias and select an installed application.", True)
             return
-        self._save({"aliases": {phrase: self._apps[index]["id"]}}, "Application alias saved.")
+        self._save({"aliases": {phrase: self._apps[index]["id"]}, "app_prefixes": {phrase: normalize(self.alias_prefix.get_text())}}, "Application alias and launch word saved.")
 
     def _add_phrase(self) -> None:
         phrase = " ".join(self.new_phrase.get_text().lower().split())
@@ -1132,6 +1243,8 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
                     return current
                 config = current["config"]
                 config.setdefault(kind, {}).pop(phrase, None)
+                if kind == "aliases":
+                    config.setdefault("app_prefixes", {}).pop(phrase, None)
                 result = client.request("save_config", config=config)
                 if result.get("ok"):
                     result["config"] = config

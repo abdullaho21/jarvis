@@ -17,3 +17,6 @@ recursive-include examples *.json *.jsonc *.conf *.lua
 recursive-include docs *.md *.json *.png
 recursive-include .github *.yml *.md
 global-exclude *.py[cod] __pycache__
+
+recursive-include native/command-phrases *.rs Cargo.toml Cargo.lock
+prune native/command-phrases/target

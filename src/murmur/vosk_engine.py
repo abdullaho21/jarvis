@@ -23,7 +23,7 @@ from pathlib import Path
 import sys
 import types
 
-from .commands import GREETINGS, GrammarMatcher, closest_match, command_wording, match_candidates, wake_variants
+from .commands import GREETINGS, GrammarMatcher, closest_match, command_wording, match_candidates, all_wake_variants
 from .speech import Recognition, normalize_phrase, _TOKEN
 
 SAMPLE_RATE = 16000
@@ -67,7 +67,7 @@ class VoskEngine:
     name = "vosk"
 
     def __init__(self, grammar: dict | list[str], wake_phrase: str, sensitivity: float = 0.5,
-                 model_path: str | Path = "", fuzzy: bool = True, transcriber=None):
+                 model_path: str | Path = "", fuzzy: bool = True, transcriber=None, wake_aliases=()):
         if not 0 <= sensitivity <= 1:
             raise ValueError("Activation sensitivity must be between 0 and 1")
         try:
@@ -102,40 +102,54 @@ class VoskEngine:
                                     if p.removeprefix("open ") not in self._sounds_like.values()]
         # The matcher checks text after _canonical(), so it knows the real names.
         self._matcher = GrammarMatcher(known, (spoken_apps + list(self._sounds_like.values())) if verbs else (), verbs)
+        from .phrases import Rules, brightness_like
+        self._rules = Rules(grammar.get("launches"), grammar.get("brightness_names"))
+        blocked = set(grammar.get("blocked_apps", []))
         self._verbs = sorted(verbs, key=len, reverse=True)
-        full = list(known) + [f"{verb} {app}" for verb in verbs for app in spoken_apps]
+        full = list(known) + [f"{verb}{article} {app}" for verb in verbs for app in spoken_apps
+                              if self._sounds_like.get(app, app) not in blocked or verb in ("focus", "switch to")
+                              for article in ("", " the")]
+        for p, alias in self._rules.launches.items():
+            article = p[:-len(alias)] + "the " + alias
+            if not self._missing_words(article):
+                full.append(article)
+            for spoken, original in self._sounds_like.items():
+                if original == alias and p.endswith(alias):
+                    full.extend((p[:-len(alias)] + spoken, p[:-len(alias)] + "the " + spoken))
         # Polite forms only for the shorter built-in phrases, to keep the
         # strict grammar small; app commands get them via closest-match.
-        full += [f"{prefix} {phrase}" for prefix in prefixes for phrase in known]
+        full += [f"{prefix} {phrase}" for prefix in prefixes for phrase in known if not brightness_like(phrase)]
         self._command_phrases = sorted(set(full))
 
         # Closest-match may also pick apps whose names the model can't spell
         # (e.g. "stremio" heard as "stream io"), which the strict grammar can't.
         all_apps = [normalize_phrase(a) for a in grammar.get("apps", [])]
-        self._candidates = match_candidates({**grammar, "apps": all_apps}) if fuzzy else {}
+        self._candidates = match_candidates({**grammar, "apps": all_apps})
+        self._fuzzy = fuzzy
         if fuzzy:
             # Those apps are now reachable, so don't report them as unsupported.
             reachable = {f"open {a}" for a in all_apps}
             self.unsupported_phrases = [p for p in self.unsupported_phrases if p not in reachable]
 
         self.wake_phrase = normalize_phrase(wake_phrase)
-        self._wake_forms = [w for w in wake_variants(self.wake_phrase) if not self._missing_words(w)]
+        self._wake_forms = [w for w in all_wake_variants({"wake_phrase": self.wake_phrase, "wake_aliases": list(wake_aliases)}) if not self._missing_words(w)]
         if not self._wake_forms:
             raise ValueError("Wake phrase uses words the Vosk model doesn't know; choose another")
         words = self.wake_phrase.split()
         # The distinctive part ("jarvis" in "hey jarvis"). Greetings are short
         # and often misheard ("hey" -> "the", "ai"), so only the name must match.
         self._wake_name = words[1:] if len(words) > 1 and words[0] in GREETINGS else words
+        self._wake_names = sorted({tuple(w.split()[1:] if len(w.split()) > 1 and w.split()[0] in GREETINGS else w.split()) for w in self._wake_forms}, key=lambda n: -len(n))
 
         # The wake grammar also knows the command words, so "hey jarvis open
         # firefox" in one breath is decoded as words rather than forced into
         # [unk] (which made the wake words themselves less likely to match).
-        wake_grammar = self._wake_forms + [f"{self._wake_forms[0]} {c}" for c in self._command_phrases]
+        wake_grammar = self._wake_forms + [f"{' '.join(name)} {c}" for name in self._wake_names for c in self._command_phrases]
         self._wake = KaldiRecognizer(self._model, SAMPLE_RATE, json.dumps(wake_grammar + ["[unk]"]))
         self._wake.SetWords(True)
         self._command = KaldiRecognizer(self._model, SAMPLE_RATE, json.dumps(self._command_phrases + ["[unk]"]))
         self._command.SetWords(True)
-        self._open = KaldiRecognizer(self._model, SAMPLE_RATE) if fuzzy else None
+        self._open = KaldiRecognizer(self._model, SAMPLE_RATE) if fuzzy or self._rules.monitors else None
         self._mode: str | None = None
         self._preroll: deque[bytes] = deque(maxlen=PREROLL_FRAMES)
         self._hangover = 0
@@ -192,7 +206,18 @@ class VoskEngine:
 
     def _canonical(self, text: str) -> str:
         """Turn a sound-alike back into the app's name: "open stream io" -> "open streamio"."""
+        rules = getattr(self, "_rules", None)
+        if rules:
+            exact = rules.canonical(text)
+            if exact:
+                return exact
+            for p, alias in rules.launches.items():
+                for spoken, original in self._sounds_like.items():
+                    if original == alias and p.endswith(alias) and text in (p[:-len(alias)] + spoken, p[:-len(alias)] + "the " + spoken):
+                        return p
         for verb in self._verbs:
+            if text.startswith(verb + " the "):
+                text = verb + " " + text[len(verb + " the "):]
             if text.startswith(verb + " ") and text[len(verb) + 1:] in self._sounds_like:
                 return f"{verb} {self._sounds_like[text[len(verb) + 1:]]}"
         return text
@@ -322,10 +347,10 @@ class VoskEngine:
         """
         words = [w for w in result.get("result", []) if w.get("word")]
         spoken = [w["word"] for w in words]
-        size = len(self._wake_name)
-        position = next((i for i in range(0, 3) if spoken[i:i + size] == self._wake_name), None)
-        if position is None:
+        match = next(((i, len(name)) for i in range(3) for name in getattr(self, "_wake_names", [self._wake_name]) if spoken[i:i + len(name)] == list(name)), None)
+        if match is None:
             return None
+        position, size = match
         name = words[position:position + size]
         confs = [float(w["conf"]) for w in name if "conf" in w]
         # Higher sensitivity accepts less certain wake words (0.5 -> 0.4).
@@ -388,14 +413,21 @@ class VoskEngine:
         self._open_text = []
         audio, self._command_audio = bytes(self._command_audio), bytearray()
         self._speech_frames = self._quiet_run = 0
-        heard_match = closest_match(heard, self._candidates) if heard and self._candidates else None
+        heard_match = closest_match(heard, self._candidates, exact_only=not self._fuzzy) if heard and self._candidates else None
         if self._transcriber is not None and audio:
             # The stronger model's transcript comes first; the small model's
             # free transcript is the fallback.
             accurate = normalize_phrase(self._transcriber.transcribe(audio))
-            accurate_match = closest_match(accurate, self._candidates) if accurate and self._candidates else None
+            accurate_match = closest_match(accurate, self._candidates, exact_only=not self._fuzzy) if accurate and self._candidates else None
             if accurate_match or not heard_match:
                 heard, heard_match = accurate or heard, accurate_match
+        from .phrases import brightness_like
+        if brightness_like(text):
+            if heard_match and brightness_like(heard_match[0]):
+                self._mode = None
+                return Recognition("command", heard_match[0], heard_match[1], heard=heard, closest_match=True)
+            self.unmatched = heard
+            return None
         confidence = self._confidence(result)
         if text and "[unk]" not in text and self._matcher.accepts(text):
             strict_intent = self._candidates.get(command_wording(text)) if self._candidates else None

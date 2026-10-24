@@ -55,6 +55,7 @@ def run_alias(args, request) -> int:
     if args.remove:
         if aliases.pop(name, None) is None:
             raise ValueError(f"No voice name “{name}”")
+        config.setdefault("app_prefixes", {}).pop(name, None)
         message = f"Removed “{name}”."
     else:
         if not args.app:

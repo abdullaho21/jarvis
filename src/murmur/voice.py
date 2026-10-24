@@ -95,11 +95,11 @@ def make_engine(config: dict, grammar: dict | list[str]):
                 emit(event="loading", message="Loading the accurate voice model…")
                 transcriber = accurate.Transcriber(denoise=settings.get("noise_suppression", False))
         engine = VoskEngine(grammar, activation["wake_phrase"], activation["sensitivity"], path,
-                            fuzzy=settings.get("closest_match", True), transcriber=transcriber)
+                            fuzzy=settings.get("closest_match", True), transcriber=transcriber, wake_aliases=activation.get("wake_aliases", []))
         engine.name = "vosk+" + transcriber.name if transcriber else "vosk"
         return engine
     from .speech import SpeechEngine
-    return SpeechEngine(grammar, activation["wake_phrase"], activation["sensitivity"])
+    return SpeechEngine(grammar, activation["wake_phrase"], activation["sensitivity"], wake_aliases=activation.get("wake_aliases", []))
 
 
 def run(config: dict, mode: str, grammar: dict | list[str]):

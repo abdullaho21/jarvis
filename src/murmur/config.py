@@ -11,7 +11,7 @@ import tempfile
 
 
 DEFAULTS = {
-    "activation": {"mode": "wake_word", "wake_phrase": "hey jarvis", "sensitivity": 0.5,
+    "activation": {"mode": "wake_word", "wake_phrase": "hey jarvis", "wake_aliases": [], "sensitivity": 0.5,
                    "command_timeout": 8, "confidence": 0.35},
     # adaptive_gate: raise the speech threshold automatically with steady background sound.
     "audio": {"device": "", "vad_rms": 0.005, "adaptive_gate": True},
@@ -23,7 +23,8 @@ DEFAULTS = {
     "recognition": {"backend": "auto", "model_path": "", "closest_match": True,
                     "accurate": True, "noise_suppression": False},
     "privacy": {"onboarded": False},
-    "aliases": {}, "commands": {}, "startup": False,
+    "aliases": {}, "commands": {}, "app_prefixes": {}, "startup": False,
+    "brightness": {"monitors": {}, "default": "", "step": 10},
     "recording": {"output_dir": "~/Videos/Murmur", "monitor": "", "system_audio": False,
                   "microphone": False, "audio_device": "", "fps": 30,
                   "codec": "libx264", "quality": 23, "configured": False, "color_mode": "auto",
@@ -36,7 +37,7 @@ DEFAULTS = {
 # Sections that existed in earlier versions and are now ignored.
 LEGACY_SECTIONS: tuple[str, ...] = ()
 # Free-form mappings; their keys are user phrases, not setting names.
-MAPPINGS = ("aliases", "commands")
+MAPPINGS = ("aliases", "commands", "app_prefixes")
 
 
 def unknown_keys(data: dict) -> list[str]:
@@ -104,6 +105,18 @@ def validate(data: dict) -> dict:
     from .commands import normalize
     if not isinstance(a["wake_phrase"], str) or not normalize(a["wake_phrase"]) or len(a["wake_phrase"]) > 80:
         raise ValueError("Choose a short wake phrase")
+    aliases = a["wake_aliases"]
+    if not isinstance(aliases, list) or len(aliases) > 7:
+        raise ValueError("Use up to eight wake names including the primary name")
+    names = []
+    for value in [a["wake_phrase"], *aliases]:
+        if not isinstance(value, str) or len(value) > 80 or not normalize(value):
+            raise ValueError("Choose short wake names")
+        words = normalize(value).split()
+        from .commands import GREETINGS
+        names.append(" ".join(words[1:] if len(words) > 1 and words[0] in GREETINGS else words))
+    if len(set(names)) != len(names):
+        raise ValueError("Wake names must be distinct")
     for value, low, high, name in (
         (a["sensitivity"], 0, 1, "wake sensitivity"),
         (a["confidence"], 0, 1, "confidence"),
@@ -125,7 +138,7 @@ def validate(data: dict) -> dict:
             raise ValueError(f"Duplicate normalized {section}")
     # Same rules the service applies at startup, so a saved file can never stop it starting.
     from .commands import Parser
-    Parser(c["commands"])  # raises CommandError (a ValueError) for non-built-in targets
+    Parser.from_config(c)  # validate configured shortcuts with the dispatch parser
     for value in (c["privacy"]["onboarded"], c["startup"], c["recording"]["configured"],
                   c["recording"]["system_audio"], c["recording"]["microphone"], c["recording"]["combined_audio_source"], c["recording"]["sound_feedback"]):
         if not isinstance(value, bool):

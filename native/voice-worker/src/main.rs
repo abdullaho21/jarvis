@@ -164,6 +164,9 @@ fn policy(reader: &mut impl BufRead) -> Result<()> {
             prefixes: strings("prefixes"),
             suffixes: strings("suffixes"),
             candidates,
+            exact_only: request["exact_only"].as_bool().unwrap_or(false),
+            rules: jarvis_phrases::Rules::from_grammar(&request["grammar"]),
+            blocked_apps: Default::default(),
         };
         emit(json!({"match":matcher.closest(request["heard"].as_str().ok_or("heard required")?)}))?;
     }

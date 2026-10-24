@@ -44,7 +44,7 @@ pub fn unknown(data: &Value) -> Vec<String> {
             match d.get(k) {
                 None => result.push(k.clone()),
                 Some(allowed) => {
-                    if !["commands", "aliases"].contains(&k.as_str()) {
+                    if !["commands", "aliases", "app_prefixes"].contains(&k.as_str()) {
                         if let (Some(v), Some(allowed)) = (v.as_object(), allowed.as_object()) {
                             for key in v.keys() {
                                 if !allowed.contains_key(key) {
@@ -132,6 +132,30 @@ pub fn validate(data: &Value) -> Result<Value> {
     {
         return err("Choose a short wake phrase");
     }
+    let names = a["wake_aliases"]
+        .as_array()
+        .ok_or("Wake aliases must be a list")?;
+    if names.len() > 7 {
+        return err("Use up to eight wake names including the primary name");
+    }
+    let mut seen = HashSet::new();
+    for value in std::iter::once(&a["wake_phrase"]).chain(names.iter()) {
+        text(value, 80, "wake name")?;
+        let n = normalize(value.as_str().unwrap())?;
+        let parts: Vec<_> = n.split_whitespace().collect();
+        let name = if parts.len() > 1
+            && crate::policy::strings(&crate::policy::TABLES["GREETINGS"])
+                .iter()
+                .any(|g| g == parts[0])
+        {
+            parts[1..].join(" ")
+        } else {
+            n
+        };
+        if name.is_empty() || !seen.insert(name) {
+            return err("Wake names must be distinct and nonempty");
+        }
+    }
     for (value, min, max, name) in [
         (&a["sensitivity"], 0., 1., "wake sensitivity"),
         (&a["confidence"], 0., 1., "confidence"),
@@ -171,7 +195,7 @@ pub fn validate(data: &Value) -> Result<Value> {
             }
         }
     }
-    Parser::new(&c["commands"])?;
+    Parser::from_config(&c)?;
     for value in [
         &c["privacy"]["onboarded"],
         &c["startup"],

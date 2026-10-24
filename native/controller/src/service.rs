@@ -86,7 +86,7 @@ impl Service {
         let recording_updates = recording.status.subscribe();
         let replay_updates = replay.status.subscribe();
         let mut result = Self {
-            parser: Parser::new(&config["commands"])?,
+            parser: Parser::from_config(&config)?,
             apps: Registry::scan(&config["aliases"], None),
             activation: Activation::new(&config),
             config,
@@ -635,7 +635,7 @@ impl Service {
                 }
                 let was_onboarded = self.config["privacy"]["onboarded"] == true;
                 self.config = config::save(&c)?;
-                self.parser = Parser::new(&c["commands"])?;
+                self.parser = Parser::from_config(&c)?;
                 self.apps = Registry::scan(&c["aliases"], None);
                 self.activation.timeout = c["activation"]["command_timeout"].as_f64().unwrap();
                 self.activation.confidence = c["activation"]["confidence"].as_f64().unwrap();
@@ -796,6 +796,9 @@ async fn dispatch(
         "workspace" | "move_workspace" | "fullscreen" | "unfullscreen" => {
             desktop.dispatch(action, &intent["target"]).await?;
             Ok("Desktop updated".into())
+        }
+        "brightness_set" | "brightness_up" | "brightness_down" => {
+            crate::brightness::execute(intent, cfg).await
         }
         "volume_down" | "volume_up" | "volume_mute" | "volume_unmute" => {
             desktop::volume(action).await?;
