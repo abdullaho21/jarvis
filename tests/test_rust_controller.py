@@ -371,7 +371,8 @@ class ControllerServiceTests(unittest.TestCase):
         self.assertFalse(Path(f"/proc/{pid}").exists())
 
     def test_parent_death_signal_stops_voice_after_hard_controller_failure(self):
-        h = self.start(onboarded=True)
+        # The default fixture also exits when the control pipe closes; this one does not.
+        h = self.start(onboarded=True, MURMUR_TEST_VOICE="linger")
         h.wait(lambda: h.status()["engine"] is not None)
         pid = h.events("voice")[0]["pid"]
         # An already-exited worker would pass without exercising PR_SET_PDEATHSIG.

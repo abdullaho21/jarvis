@@ -43,3 +43,7 @@ for line in sys.stdin:
     emit(event="ready", engine=engine, unsupported=[], listening=control == "listen", deadline=time.monotonic() + 8)
     if scenario in ("command", "stale") and control == "listen":
         emit(event="command", text="go to workspace three", confidence=1, captured_at=time.monotonic())
+if scenario == "linger":
+    # Outlive the closed control pipe, so only the parent-death signal ends it.
+    while True:
+        time.sleep(1)
