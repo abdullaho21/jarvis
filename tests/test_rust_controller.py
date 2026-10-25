@@ -33,6 +33,14 @@ def policies(requests):
     return [json.loads(line) for line in result.stdout.splitlines()]
 
 
+def exited(pid):
+    """True once the process is a zombie or gone; a dying process's stat can vanish mid-read."""
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().split(") ", 1)[1].startswith("Z")
+    except OSError:
+        return True
+
+
 class ControllerTablesTests(unittest.TestCase):
     def test_embedded_tables_match_the_python_api(self):
         data = ROOT / "native/controller/data"
@@ -369,8 +377,7 @@ class ControllerServiceTests(unittest.TestCase):
         h.process.kill(); h.process.wait(timeout=5)
         end = time.monotonic() + 3
         while time.monotonic() < end:
-            path = Path(f"/proc/{pid}/stat")
-            if not path.exists() or path.read_text().split(") ", 1)[1].startswith("Z"):
+            if exited(pid):
                 break
             time.sleep(.01)
         else:
@@ -386,8 +393,7 @@ class ControllerServiceTests(unittest.TestCase):
         for pid in pids:
             end = time.monotonic() + 3
             while time.monotonic() < end:
-                path = Path(f"/proc/{pid}/stat")
-                if not path.exists() or path.read_text().split(") ", 1)[1].startswith("Z"):
+                if exited(pid):
                     break
                 time.sleep(.01)
             else:
