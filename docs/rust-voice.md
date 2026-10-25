@@ -1,10 +1,10 @@
-# Optional Rust voice worker
+# Rust voice worker
 
 The worker now performs [Whisper small.en recognition](rust-whisper.md) and
 [GTCRN denoising](rust-denoiser.md) with Rust audio processing and tract's Rust
 CPU kernels. It uses the existing trained ONNX weights and does not link
 sherpa-onnx or ONNX Runtime. Vosk wake detection and command boundaries still
-use the existing Vosk shared library. The Python service validates and dispatches
+use the existing Vosk shared library. The controller validates and dispatches
 allowlisted actions; there is no Python interpreter in the Rust voice process.
 
 The initial implementation only wrapped the native recognizers and denoiser.
@@ -13,9 +13,11 @@ comparison are documented in [Rust Whisper](rust-whisper.md).
 The later [memory audit and lossless embedding optimization](rust-worker-memory.md)
 targets the resident voice worker, the largest Jarvis process in the audit.
 
-Python remains the default and supports the PocketSphinx fallback. Select Rust
-explicitly for comparison. This prototype supports Vosk and the current default
-Whisper model; it does not port PocketSphinx. General recognition quality still
+Linux prefers the Rust worker when its executable, Vosk library and model are
+available. Windows, PocketSphinx and installations without these native assets
+use Python. `MURMUR_VOICE_WORKER=rust` forces Rust and reports missing assets;
+`MURMUR_VOICE_WORKER=python` forces the compatibility worker. Rust supports Vosk
+and the current default Whisper model; it does not port PocketSphinx. General recognition quality still
 needs evaluation across speakers and environments.
 GTCRN is noise suppression, and does not isolate one speaker from other voices.
 
@@ -50,7 +52,8 @@ Environment=MURMUR_VOICE_WORKER=rust
 
 The environment must belong to the daemon that starts the worker. Setting it
 only on a settings window does not change an already-running service. Set it
-to `python`, or remove the entry and restart, to return to Python. Explicit
+to `python` and restart to return to Python. Removing the override restores
+automatic selection. Explicit
 Rust selection reports a missing binary/model instead of silently changing
 engines. Microphone consent and mute checks remain enforced.
 

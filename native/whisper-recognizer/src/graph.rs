@@ -8,6 +8,7 @@ use tract_onnx::{pb, prelude::*};
 pub struct Builder<'a> {
     graph: pb::GraphProto,
     source: &'a pb::GraphProto,
+    directory: &'a str,
     weights: HashMap<&'a str, &'a pb::TensorProto>,
     count: usize,
 }
@@ -41,10 +42,11 @@ fn attr_is(name: &str, ints: &[i64]) -> pb::AttributeProto {
     }
 }
 impl<'a> Builder<'a> {
-    pub fn new(source: &'a pb::GraphProto) -> Self {
+    pub fn new(source: &'a pb::GraphProto, directory: &'a str) -> Self {
         Self {
             graph: Default::default(),
             source,
+            directory,
             weights: source
                 .initializer
                 .iter()
@@ -207,7 +209,12 @@ impl<'a> Builder<'a> {
             graph: Some(self.graph),
             ..Default::default()
         };
-        let mut model = tract_onnx::onnx().model_for_proto_model(&proto)?;
+        let parsed = tract_onnx::onnx().parse(&proto, Some(self.directory))?;
+        ensure!(
+            parsed.unresolved_inputs.is_empty(),
+            "Unresolved decoder inputs"
+        );
+        let mut model = parsed.model;
         model.symbols = scope;
         for (i, (_, fact)) in inputs.iter().enumerate() {
             model.set_input_fact(i, fact.clone().into())?;
@@ -297,6 +304,37 @@ pub fn clear_shapes(proto: &mut pb::ModelProto) -> TractResult<()> {
     Ok(())
 }
 
+/// Return each layer's cross-attention cache directly. The exported graph
+/// concatenates all twelve layers only for its public interface; the decoder
+/// immediately split/copied them again. Selecting the existing inputs avoids
+/// both operations, retaining the same tensor bytes and arithmetic.
+pub fn split_encoder_outputs(proto: &mut pb::ModelProto) -> TractResult<()> {
+    let graph = proto
+        .graph
+        .as_mut()
+        .ok_or_else(|| format_err!("Missing graph"))?;
+    let mut outputs = Vec::with_capacity(24);
+    for name in ["n_layer_cross_k", "n_layer_cross_v"] {
+        let node = graph
+            .node
+            .iter()
+            .find(|n| n.output.iter().any(|s| s == name))
+            .ok_or_else(|| format_err!("Missing cross-cache output"))?;
+        ensure!(
+            node.op_type == "Concat"
+                && node.input.len() == 12
+                && node.attribute.len() == 1
+                && node.attribute[0].name == "axis"
+                && node.attribute[0].r#type == 2
+                && node.attribute[0].i == 0,
+            "Unsupported cross-cache concatenation"
+        );
+        outputs.extend(node.input.iter().map(|name| value(name)));
+    }
+    graph.output = outputs;
+    Ok(())
+}
+
 /// Compatibility signature for the supported sherpa small.en export's wiring.
 /// This is not a cryptographic integrity check and does not hash trained data.
 pub fn check_export(graph: &pb::GraphProto, expected: u64) -> TractResult<()> {
@@ -376,6 +414,67 @@ pub fn fold_weight_sums(mut model: TypedModel) -> TractResult<TypedModel> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn separate_cross_caches_preserve_concatenated_bytes() -> TractResult<()> {
+        let mut graph = pb::GraphProto::default();
+        for (index, output) in ["n_layer_cross_k", "n_layer_cross_v"].iter().enumerate() {
+            let inputs: Vec<_> = (0..12)
+                .map(|layer| format!("cache_{index}_{layer}"))
+                .collect();
+            for (layer, name) in inputs.iter().enumerate() {
+                graph.initializer.push(pb::TensorProto {
+                    name: name.clone(),
+                    data_type: 1,
+                    dims: vec![1, 1, 3, 8],
+                    float_data: (0..24)
+                        .map(|i| (index * 288 + layer * 24 + i) as f32)
+                        .collect(),
+                    ..Default::default()
+                });
+            }
+            graph.node.push(pb::NodeProto {
+                name: output.to_string(),
+                op_type: "Concat".into(),
+                input: inputs,
+                output: vec![output.to_string()],
+                attribute: vec![attr_i("axis", 0)],
+                ..Default::default()
+            });
+            graph.output.push(value(output));
+        }
+        let mut proto = pb::ModelProto {
+            ir_version: 8,
+            graph: Some(graph),
+            opset_import: vec![pb::OperatorSetIdProto {
+                domain: String::new(),
+                version: 13,
+            }],
+            ..Default::default()
+        };
+        let loader = tract_onnx::onnx();
+        let expected = loader
+            .model_for_proto_model(&proto)?
+            .into_optimized()?
+            .into_runnable()?
+            .run(tvec!())?;
+        split_encoder_outputs(&mut proto)?;
+        let actual = loader
+            .model_for_proto_model(&proto)?
+            .into_optimized()?
+            .into_runnable()?
+            .run(tvec!())?;
+        assert_eq!(actual.len(), 24);
+        for i in 0..2 {
+            let bytes: Vec<_> = actual[i * 12..(i + 1) * 12]
+                .iter()
+                .flat_map(|t| t.as_bytes().iter().copied())
+                .collect();
+            assert_eq!(bytes, expected[i].as_bytes());
+        }
+        proto.graph.as_mut().unwrap().node[0].attribute[0].i = 1;
+        assert!(split_encoder_outputs(&mut proto).is_err());
+        Ok(())
+    }
     #[test]
     fn precomputing_large_weight_sums_preserves_exact_integer_results() -> TractResult<()> {
         use tract_onnx::tract_core::ops::{

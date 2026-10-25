@@ -1,5 +1,9 @@
 # Voice-worker memory reduction
 
+For the subsequent startup and temporary-buffer changes, see
+[incremental model loading](rust-memory-loading.md). The measurements below
+describe the earlier embedding compaction pass.
+
 The host process audit found Firefox leading raw RSS at **772.31 MiB**. Jarvis's
 voice worker used **689.76 MiB RSS / 685.22 MiB PSS / 685.15 MiB private memory**.
 It was the largest Jarvis process and the largest individual PSS/private-memory

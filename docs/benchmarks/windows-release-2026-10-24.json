@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-24",
+  "version": "0.2.0",
+  "platform_target": "Windows 10 22H2 / Windows 11 x64",
+  "local_only": true,
+  "discord_moderation_included": false,
+  "windows_environment": "Wine 11.20, isolated prefix, private Xvfb display, CPython 3.13.17",
+  "checks": {
+    "linux_python": {
+      "run": 296,
+      "passed": 292,
+      "windows_converter_skipped": 4,
+      "detail": "292 passed, including all supplied model/fixture checks, in 43.314 seconds; four Windows-only converter cases passed in the Windows suite."
+    },
+    "windows_policy": {
+      "passed": 29
+    },
+    "rust_unit": {
+      "passed": 31
+    },
+    "clippy": "warnings denied",
+    "windows_contracts": "passed: structure layouts, ACL, lock, auth IPC, named-pipe wraparound, muted service and tray lifecycle",
+    "generated_capture": "passed: recorder finalization, replay save/remux/verify and RAM cleanup",
+    "settings": "passed: nine pages, friendly choices, scrolling, process identity, bounded status queue and closing with a full queue",
+    "offline_inference": "passed: installed Windows runtime and shipped frozen archive/DLLs/models, saved public fixture only",
+    "portable": "passed: CRC and 1182 manifest file hashes",
+    "installer": "passed: silent install, all file hashes, registration, installed frozen app, silent uninstall, unrelated-file preservation"
+  },
+  "not_run": [
+    "real Windows 10/11 hardware",
+    "live microphone",
+    "actual host desktop actions/capture",
+    "physical GPU recording/HDR",
+    "physical monitor brightness",
+    "paid APIs",
+    "publishing"
+  ],
+  "artifacts": [
+    "dist/windows/Jarvis-0.2.0-Windows-x64-Setup.exe",
+    "dist/windows/Jarvis-0.2.0-Windows-x64-Portable.zip",
+    "dist/source/jarvis_hyprland-0.2.0.tar.gz",
+    "dist/source/jarvis_hyprland-0.2.0-py3-none-any.whl"
+  ],
+  "public_speech_fixture_sha256": "f15c60ec54059d8b66e410d0064945a0b0a04ea56e1ddca1958e493c0cf70e71"
+}

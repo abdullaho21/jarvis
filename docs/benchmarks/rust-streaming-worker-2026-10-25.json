@@ -1,0 +1,52 @@
+{
+  "date": "2026-10-25",
+  "platform": "Linux-7.3.0-5-cachyos-x86_64-with-glibc2.44",
+  "fixture_sha256": "f15c60ec54059d8b66e410d0064945a0b0a04ea56e1ddca1958e493c0cf70e71",
+  "commands_identical": true,
+  "scope": "complete voice worker Vosk+Whisper with fake paced capture; excludes capture child, service, UI and real microphone; surrogate wake go forward and allowlisted ten meters command; no actions",
+  "comparison": "before/after Rust",
+  "before": {
+    "worker": "rust",
+    "denoise": true,
+    "commands": [
+      "ten meters",
+      "ten meters",
+      "ten meters"
+    ],
+    "load_seconds": 1.9093983260027017,
+    "binary_sha256": "36ac49ec20f473f31fdc650ea678cd137e5c20d25a892281ef34f3f09d6f485b",
+    "loaded_rss_mib": 461.296875,
+    "load_peak_rss_mib": 526.73828125,
+    "final_rss_mib": 480.96875,
+    "peak_rss_mib": 571.8125,
+    "command_rss_mib": [
+      479.19140625,
+      480.34375,
+      480.96875
+    ],
+    "cpu_seconds": 6.24,
+    "elapsed_seconds": 17.09472782100056
+  },
+  "after": {
+    "worker": "rust",
+    "denoise": true,
+    "commands": [
+      "ten meters",
+      "ten meters",
+      "ten meters"
+    ],
+    "load_seconds": 1.9130502129992237,
+    "binary_sha256": "d7e7ab48b3275c43eb9b56a197d612ee8945f30a0a3eb6cfe62c2bf511195b12",
+    "loaded_rss_mib": 460.1484375,
+    "load_peak_rss_mib": 460.77734375,
+    "final_rss_mib": 480.59375,
+    "peak_rss_mib": 556.90234375,
+    "command_rss_mib": [
+      478.94921875,
+      480.3359375,
+      480.59375
+    ],
+    "cpu_seconds": 6.5,
+    "elapsed_seconds": 17.110904230001324
+  }
+}

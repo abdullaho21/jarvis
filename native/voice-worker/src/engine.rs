@@ -79,11 +79,8 @@ pub struct Engine {
 }
 
 fn token(word: &str) -> bool {
-    let pieces: Vec<_> = word.split(['\'', '-']).collect();
-    !pieces.is_empty()
-        && pieces
-            .iter()
-            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_lowercase()))
+    word.split(['\'', '-'])
+        .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_lowercase()))
 }
 
 fn supported(model: &Model, phrases: &[String]) -> Vec<String> {
@@ -145,7 +142,7 @@ impl Engine {
             .map(|s| phrase(s))
             .collect::<BTreeSet<_>>()
         {
-            if !known.contains(&p) {
+            if known.binary_search(&p).is_err() {
                 unsupported.push(p);
             }
         }
@@ -155,7 +152,7 @@ impl Engine {
             .map(|s| phrase(s))
             .collect::<BTreeSet<_>>()
         {
-            if !apps.contains(&a) {
+            if apps.binary_search(&a).is_err() {
                 unsupported.push(format!("open {a}"));
             }
         }
@@ -166,7 +163,7 @@ impl Engine {
             .map(|s| phrase(s))
             .collect::<BTreeSet<_>>()
         {
-            if apps.contains(&name) || !name.split_whitespace().all(token) {
+            if apps.binary_search(&name).is_ok() || !name.split_whitespace().all(token) {
                 continue;
             }
             let mut parts = Vec::new();
@@ -189,7 +186,7 @@ impl Engine {
             }
             if !parts.is_empty() {
                 let spoken = parts.join(" ");
-                if spoken != name && !apps.contains(&spoken) {
+                if spoken != name && apps.binary_search(&spoken).is_err() {
                     sounds.entry(spoken).or_insert(name);
                 }
             }
@@ -612,9 +609,9 @@ impl Engine {
         self.command_result(strict)
     }
     fn command_result(&mut self, result: Value) -> Result<Option<Recognition>> {
-        let text = self.canonical(&text(&result));
+        let canonical = self.canonical(&text(&result));
         if let Some(open) = &self.open {
-            self.open_text.push(text_of(&open.result(true)?));
+            self.open_text.push(text(&open.result(true)?));
             open.reset();
         }
         let mut heard = self
@@ -643,22 +640,17 @@ impl Engine {
         }
         if let Some(recognition) =
             self.matcher
-                .choose(&text, confidence(&result), &heard, heard_match)
+                .choose(&canonical, confidence(&result), &heard, heard_match)
         {
             self.mode = None;
             return Ok(Some(recognition));
         }
         let heard = if heard.is_empty() {
-            text.replace("[unk]", "…").trim().to_owned()
+            canonical.replace("[unk]", "…").trim().to_owned()
         } else {
             heard
         };
         self.unmatched = if heard.is_empty() { None } else { Some(heard) };
         Ok(None)
     }
-}
-
-// Avoid shadowing the text() helper with the canonical command local.
-fn text_of(result: &Value) -> String {
-    text(result)
 }

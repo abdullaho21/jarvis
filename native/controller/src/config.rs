@@ -37,7 +37,9 @@ fn merge(base: &mut Value, patch: &Value) {
     }
 }
 pub fn unknown(data: &Value) -> Vec<String> {
-    let d = defaults();
+    unknown_settings(data, &defaults())
+}
+fn unknown_settings(data: &Value, d: &Value) -> Vec<String> {
     let mut result = vec![];
     if let Some(object) = data.as_object() {
         for (k, v) in object {
@@ -79,14 +81,14 @@ pub fn validate(data: &Value) -> Result<Value> {
     if !data.is_object() {
         return err("Configuration must be a JSON object");
     }
-    let keys = unknown(data);
+    let mut c = defaults();
+    let keys = unknown_settings(data, &c);
     if !keys.is_empty() {
         return err(format!(
             "Unknown setting(s): {}",
             keys.into_iter().take(5).collect::<Vec<_>>().join(", ")
         ));
     }
-    let mut c = defaults();
     merge(&mut c, data);
     for section in [
         "activation",
@@ -218,6 +220,12 @@ pub fn validate(data: &Value) -> Result<Value> {
         (&r["fps"], 1, 60, "Recording fps must be 1–60"),
         (&r["quality"], 0, 51, "Recording quality must be CRF 0–51"),
         (
+            &r["bitrate_mbps"],
+            1,
+            100,
+            "Recording bitrate must be 1–100 Mbps",
+        ),
+        (
             &c["replay"]["seconds"],
             10,
             600,
@@ -230,8 +238,23 @@ pub fn validate(data: &Value) -> Result<Value> {
     }
     choices(
         &r["codec"],
-        &["libx264", "h264_vaapi"],
-        "Choose libx264 or h264_vaapi",
+        &["libx264", "h264_vaapi", "h264", "hevc", "av1"],
+        "Choose H.264, HEVC or AV1 recording encoding",
+    )?;
+    choices(
+        &r["rate_control"],
+        &["quality", "bitrate"],
+        "Choose quality or bitrate control",
+    )?;
+    choices(
+        &r["quality_preset"],
+        &["medium", "high", "very_high"],
+        "Choose a supported quality preset",
+    )?;
+    choices(
+        &r["encoder"],
+        &["auto", "nvenc", "amf", "qsv", "cpu"],
+        "Choose a supported encoder",
     )?;
     if !r["vaapi_device"]
         .as_str()

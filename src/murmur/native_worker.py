@@ -1,4 +1,4 @@
-"""Prepare the optional Rust worker without importing any inference library."""
+"""Prefer the available Rust worker without importing inference libraries."""
 from __future__ import annotations
 
 import importlib.util
@@ -27,27 +27,34 @@ def binary_path() -> Path | None:
 
 
 def prepare(config: dict, mode: str, grammar: dict) -> tuple[list[str], dict, dict]:
-    """Same JSON protocol as Python; opt in with MURMUR_VOICE_WORKER=rust.
+    """Prefer Rust on Linux; explicit environment overrides select either worker.
 
     Paths come from the installed packages and model discovery, never from a
-    command string. Python remains the default and the PocketSphinx fallback.
+    command string. Python supports Windows, PocketSphinx and source-only installs.
     """
-    selected = os.environ.get("MURMUR_VOICE_WORKER", "python")
+    from .host import command, is_windows
+    if is_windows():
+        return command("voice"), {"config": config, "mode": mode, "grammar": grammar}, dict(os.environ, MURMUR_OWNER_PID=str(os.getpid()))
+    selected = os.environ.get("MURMUR_VOICE_WORKER")
     payload = {"config": config, "mode": mode, "grammar": grammar}
     env = dict(os.environ, MURMUR_OWNER_PID=str(os.getpid()))
     if selected == "python":
         return [sys.executable, "-m", "murmur.voice"], payload, env
-    if selected != "rust":
+    if selected not in (None, "rust"):
         raise ValueError("MURMUR_VOICE_WORKER must be python or rust")
     binary = binary_path()
+    settings = config["recognition"]
+    if selected is None and (binary is None or settings["backend"] == "pocketsphinx"):
+        return [sys.executable, "-m", "murmur.voice"], payload, env
     if binary is None:
         raise ValueError("Rust voice worker missing. Run scripts/build_voice_worker.py first.")
-    settings = config["recognition"]
     if mode != "test" and settings["backend"] == "pocketsphinx":
         raise ValueError("The Rust worker requires Vosk; select auto/vosk or use the Python worker.")
     model = Path(settings.get("model_path") or default_model_path()).expanduser()
     vosk = package_dir("vosk")
-    if mode != "test" and (not vosk or not valid_model(model)):
+    if mode != "test" and (not vosk or not (vosk / "libvosk.so").is_file() or not valid_model(model)):
+        if selected is None:
+            return [sys.executable, "-m", "murmur.voice"], payload, env
         raise ValueError("Rust voice worker requires the local Vosk package and model.")
     native = {"vosk_library": str(vosk / "libvosk.so") if vosk else "",
               "model_path": str(model), "whisper": None, "denoiser": None,

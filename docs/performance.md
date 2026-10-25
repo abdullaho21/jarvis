@@ -1,7 +1,9 @@
 # Current performance
 
-Since 2026-10-25 the Rust worker loads Whisper on demand: about 156 MiB while
-waiting for the wake phrase, versus 469 MiB with Whisper kept loaded; see
+The latest Rust startup and temporary-buffer measurements are in
+[model loading memory](rust-memory-loading.md). Since 2026-10-25 the Rust
+worker loads Whisper on demand: about 156 MiB while waiting for the wake
+phrase, versus 469 MiB with Whisper kept loaded; see
 [on-demand Whisper](whisper-on-demand.md). The dated comparisons below
 retain their original scope and baselines.
 

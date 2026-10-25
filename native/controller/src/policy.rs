@@ -1,8 +1,6 @@
 use crate::{err, Result};
 use serde_json::{json, Value};
 use std::{collections::BTreeSet, sync::LazyLock};
-use unicode_casefold::UnicodeCaseFold;
-use unicode_normalization::UnicodeNormalization;
 
 pub static TABLES: LazyLock<Value> =
     LazyLock::new(|| serde_json::from_str(include_str!("../data/commands.json")).unwrap());
@@ -21,22 +19,7 @@ pub fn normalize(text: &str) -> Result<String> {
     if text.chars().count() > 256 {
         return err("Phrase must be at most 256 characters");
     }
-    let plain: String = text
-        .nfkc()
-        .case_fold()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '_' || c.is_whitespace() {
-                c
-            } else {
-                ' '
-            }
-        })
-        .collect();
-    Ok(plain
-        .split_whitespace()
-        .map(|w| if w == "fullscreen" { "full screen" } else { w })
-        .collect::<Vec<_>>()
-        .join(" "))
+    Ok(jarvis_phrases::normalize(text))
 }
 fn strip_edges(text: &str) -> String {
     let mut result = text;
@@ -102,7 +85,7 @@ impl Parser {
         let mut parser = Self::new(&c["commands"])?;
         let rules = jarvis_phrases::Rules::from_config(c).map_err(std::io::Error::other)?;
         for phrase in parser.custom.as_object().unwrap().keys() {
-            if jarvis_phrases::brightness_like(phrase) || rules.parse(phrase).is_some() {
+            if jarvis_phrases::brightness_like(phrase) || rules.parse_normalized(phrase).is_some() {
                 return err("Command shortcut conflicts with a configured voice control");
             }
         }
@@ -130,15 +113,13 @@ impl Parser {
         if SIGNED.is_match(text) {
             return err("Use an unsigned workspace number one through ten");
         }
-        if jarvis_phrases::brightness_like(&normalize(text)?)
-            && jarvis_phrases::invalid_number(text)
-        {
+        let mut phrase = normalize(text)?;
+        if jarvis_phrases::brightness_like(&phrase) && jarvis_phrases::invalid_number(text) {
             return err("Brightness must be a whole unsigned percentage from zero to 100");
         }
-        if let Some(intent) = self.rules.parse(text) {
+        if let Some(intent) = self.rules.parse_normalized(&phrase) {
             return Ok(intent);
         }
-        let mut phrase = normalize(text)?;
         if self.custom.get(&phrase).is_none() {
             phrase = strip_edges(&phrase);
         }
@@ -156,7 +137,7 @@ impl Parser {
         if let Some(intent) = TABLES["FIXED"].get(&phrase) {
             return Ok(intent.clone());
         }
-        if let Some(intent) = self.rules.parse(&phrase) {
+        if let Some(intent) = self.rules.parse_normalized(&phrase) {
             return Ok(intent);
         }
         if jarvis_phrases::brightness_like(&phrase) {
@@ -367,6 +348,7 @@ impl Activation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use jarvis_phrases::{number, Rules};
 
     #[test]
     fn completed_audio_may_finish_after_capture_deadline_but_stale_audio_cannot() {
@@ -392,5 +374,65 @@ mod tests {
         assert!(!state.accept(&json!({"text":"CANCEL!","confidence":1.0})));
         state.set("paused");
         assert!(!state.accept(&json!({"text":"open firefox","confidence":1.0})));
+    }
+    #[test]
+    fn every_percentage_and_monitor_form_resolves_exactly() {
+        let rules = Rules {
+            monitors: serde_json::from_value(
+                json!({"screen one":"id-1", "screen":"id-2", "main":"id-1"}),
+            )
+            .unwrap(),
+            ..Default::default()
+        };
+        for (name, id) in &rules.monitors {
+            for n in 0..=100 {
+                for value in [number(n), n.to_string()] {
+                    for phrase in [
+                        format!("set {name} brightness to {value}"),
+                        format!("brighten the {name} to {value}"),
+                        format!("dim {name} to {value}"),
+                    ] {
+                        let expected =
+                            json!({"action":"brightness_set","target":{"monitor":id,"percent":n}});
+                        assert_eq!(rules.parse(&phrase), Some(expected.clone()), "{phrase}");
+                        assert_eq!(rules.parse(&format!("{phrase} percent")), Some(expected));
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            rules.parse("dim"),
+            Some(json!({"action":"brightness_down","target":{"monitor":"id-1"}}))
+        );
+        assert_eq!(
+            rules.parse("set brightness to 100"),
+            Some(json!({"action":"brightness_set","target":{"monitor":"id-1","percent":100}}))
+        );
+    }
+
+    #[test]
+    fn incomplete_or_out_of_range_wording_is_rejected() {
+        let rules = Rules {
+            monitors: serde_json::from_value(json!({"screen":"id"})).unwrap(),
+            ..Default::default()
+        };
+        for value in [
+            "",
+            "twenty zero",
+            "one hundred one",
+            "zero hundred",
+            "two one",
+            "101",
+            "67 tomorrow",
+        ] {
+            assert!(
+                rules
+                    .parse(&format!("set screen brightness to {value}"))
+                    .is_none(),
+                "{value}"
+            );
+        }
+        assert!(rules.parse("dim").is_none());
+        assert!(rules.parse("set brightness to 67").is_none());
     }
 }

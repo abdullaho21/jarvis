@@ -99,7 +99,16 @@ def run_waybar(watch, stop: threading.Event, wait=None) -> int:
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="jarvis", description="Local voice control for Hyprland")
+    if sys.argv[1:] == ["--background"]:
+        from .windows.startup import start_service
+        start_service()
+        return 0
+    if len(sys.argv) >= 3 and sys.argv[1] == "--internal":
+        from .entry import internal
+        return internal(sys.argv[2], sys.argv[3:])
+    parser = argparse.ArgumentParser(prog="jarvis", description="Offline desktop voice controls")
+    from . import __version__
+    parser.add_argument("--version", action="version", version="Jarvis " + __version__)
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("daemon", help="Run the background service")
     ui = sub.add_parser("ui", help="Open native settings")
@@ -110,6 +119,9 @@ def main():
     sub.add_parser("cancel")
     sub.add_parser("mute")
     sub.add_parser("resume")
+    from .host import is_windows
+    if is_windows():
+        sub.add_parser("shutdown", help="Stop Jarvis and its owned workers")
     execute = sub.add_parser("execute", help="Execute an allowlisted phrase for integration testing")
     execute.add_argument("phrase")
     record = sub.add_parser("record")
@@ -128,7 +140,11 @@ def main():
     args = parser.parse_args()
     try:
         if args.command in (None, "ui"):
-            from .ui import main as ui_main
+            from .host import is_windows
+            if is_windows():
+                from .windows.ui import main as ui_main
+            else:
+                from .ui import main as ui_main
             return ui_main(["--page", getattr(args, "page", "dashboard")])
         if args.command == "daemon":
             from .native_controller import selected_binary
@@ -162,6 +178,10 @@ def main():
             from .doctor import report
             result = report()
             print(json.dumps(result, indent=2))
+            return 0
+        if args.command == "shutdown":
+            from .windows.startup import stop_service
+            print(json.dumps(stop_service(), indent=2))
             return 0
         from .client import request, watch
         if args.command == "alias":

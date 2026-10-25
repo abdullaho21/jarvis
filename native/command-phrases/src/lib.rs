@@ -20,22 +20,62 @@ pub fn normalize(s: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
 }
+const SMALL: [&str; 20] = [
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+];
+const TENS: [&str; 10] = [
+    "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+];
+
 pub fn number(n: usize) -> String {
-    let small = "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split_whitespace().collect::<Vec<_>>();
     if n < 20 {
-        small[n].into()
+        SMALL[n].into()
     } else if n == 100 {
         "one hundred".into()
+    } else if n.is_multiple_of(10) {
+        TENS[n / 10].into()
     } else {
-        let tens = [
-            "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
-        ];
-        if n % 10 == 0 {
-            tens[n / 10].into()
-        } else {
-            format!("{} {}", tens[n / 10], small[n % 10])
-        }
+        format!("{} {}", TENS[n / 10], SMALL[n % 10])
     }
+}
+
+fn percentage(text: &str) -> Option<usize> {
+    if text == "one hundred" {
+        return Some(100);
+    }
+    if let Some(n) = SMALL.iter().position(|&word| word == text) {
+        return Some(n);
+    }
+    let (tens, ones) = text.split_once(' ').unwrap_or((text, ""));
+    let n = TENS
+        .iter()
+        .position(|&word| word == tens)
+        .filter(|&n| n >= 2)?;
+    let unit = if ones.is_empty() {
+        0
+    } else {
+        SMALL[1..10].iter().position(|&word| word == ones)? + 1
+    };
+    Some(n * 10 + unit)
 }
 pub fn numeric(text: &str) -> String {
     text.split_whitespace()
@@ -175,8 +215,11 @@ impl Rules {
         }
     }
     pub fn parse(&self, text: &str) -> Option<Value> {
-        let mut p = normalize(text);
-        if let Some(target) = self.launches.get(&p) {
+        self.parse_normalized(&normalize(text))
+    }
+    /// Parse normalized text without expanding every monitor/percentage pair.
+    pub fn parse_normalized(&self, p: &str) -> Option<Value> {
+        if let Some(target) = self.launches.get(p) {
             return Some(json!({"action":"open_app","target":target}));
         }
         for (shortcut, alias) in &self.launches {
@@ -188,42 +231,35 @@ impl Rules {
                 }
             }
         }
-        if !brightness_like(&p) {
+        if !brightness_like(p) {
             return None;
         }
-        p = numeric(&p);
-        // Optional article only at a monitor name, never arbitrary deletion.
-        for verb in ["brighten", "dim", "set"] {
-            p = p.replacen(&format!("{verb} the "), &format!("{verb} "), 1);
-        }
-        for (name, id) in &self.monitors {
-            for action in ["brighten", "dim"] {
-                if p == format!("{action} {name}") || (name == "main" && p == action) {
-                    return Some(
-                        json!({"action":if action == "dim" {"brightness_down"} else {"brightness_up"},"target":{"monitor":id}}),
-                    );
+        let p = numeric(p);
+        let (verb, target) = p.split_once(' ').unwrap_or((&p, ""));
+        let target = target.strip_prefix("the ").unwrap_or(target);
+        let (name, value) = match verb {
+            "brighten" | "dim" => {
+                let name = if target.is_empty() { "main" } else { target };
+                if let Some(id) = self.monitors.get(name) {
+                    return Some(json!({
+                        "action": if verb == "dim" { "brightness_down" } else { "brightness_up" },
+                        "target": { "monitor": id }
+                    }));
+                }
+                target.rsplit_once(" to ")?
+            }
+            "set" => {
+                if let Some(value) = target.strip_prefix("brightness to ") {
+                    ("main", value)
+                } else {
+                    target.rsplit_once(" brightness to ")?
                 }
             }
-            for n in 0..=100 {
-                let nword = number(n);
-                if [
-                    format!("set {name} brightness to {nword}"),
-                    format!("brighten {name} to {nword}"),
-                    format!("dim {name} to {nword}"),
-                    format!("set brightness to {nword}"),
-                ]
-                .iter()
-                .enumerate()
-                .any(|(i, form)| {
-                    (i != 3 || name == "main") && (p == *form || p == format!("{form} percent"))
-                }) {
-                    return Some(
-                        json!({"action":"brightness_set","target":{"monitor":id,"percent":n}}),
-                    );
-                }
-            }
-        }
-        None
+            _ => return None,
+        };
+        let id = self.monitors.get(name)?;
+        let n = percentage(value.strip_suffix(" percent").unwrap_or(value))?;
+        Some(json!({"action":"brightness_set","target":{"monitor":id,"percent":n}}))
     }
     pub fn phrases(&self) -> Vec<String> {
         let mut p: Vec<_> = self.launches.keys().cloned().collect();
@@ -238,6 +274,7 @@ impl Rules {
     }
     pub fn canonical(&self, text: &str) -> Option<String> {
         let intent = self.parse(text)?;
+
         // One canonical name prevents synonyms competing with each other.
         if intent["action"] == "open_app" {
             return self

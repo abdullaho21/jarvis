@@ -165,19 +165,20 @@ class Parser:
     def from_config(cls, config):
         from .phrases import Rules
         parser = cls(config["commands"])
-        parser.rules = Rules.from_config(config)
-        parser.blocked_apps = {normalize(k) for k in config["app_prefixes"]}
+        rules = Rules.from_config(config)
         from .phrases import brightness_like
         for phrase in parser.custom:
-            if brightness_like(phrase) or parser.rules.parse(phrase) is not None:
+            if brightness_like(phrase) or rules.parse_normalized(phrase) is not None:
                 raise CommandError("Command shortcut conflicts with a configured voice control")
-        for phrase in parser.rules.launches:
+        for phrase in rules.launches:
             try:
-                original = cls(config["commands"]).parse(phrase)
+                original = parser.parse(phrase)
             except CommandError:
                 continue
             if original.action not in ("open_app", "focus_app") or phrase in parser.custom:
                 raise CommandError("Application shortcut conflicts with an existing command")
+        parser.rules = rules
+        parser.blocked_apps = {normalize(k) for k in config["app_prefixes"]}
         return parser
 
     def parse(self, text: str) -> Intent:
@@ -186,20 +187,20 @@ class Parser:
         if re.search(r"workspace\s+[+-]\s*\w", text, re.IGNORECASE):
             raise CommandError("Use an unsigned workspace number one through ten")
         from .phrases import brightness_like, invalid_number
-        if brightness_like(normalize(text)) and invalid_number(text):
+        phrase = normalize(text)
+        if brightness_like(phrase) and invalid_number(text):
             raise CommandError("Brightness must be a whole unsigned percentage from zero to 100")
-        exact = self.rules.parse(text)
+        exact = self.rules.parse_normalized(phrase)
         if exact is not None:
             return exact
-        phrase = normalize(text)
         # An exact user shortcut takes precedence over optional politeness.
         if phrase not in self.custom:
-            phrase = command_wording(phrase)
+            phrase = POLITE_SUFFIX.sub("", POLITE_PREFIX.sub("", phrase, count=1), count=1)
         phrase = self.custom.get(phrase, phrase)
         phrase = VARIANTS.get(phrase, phrase)
         if phrase in FIXED:
             return FIXED[phrase]
-        exact = self.rules.parse(phrase)
+        exact = self.rules.parse_normalized(phrase)
         if exact is not None:
             return exact
         if brightness_like(phrase):
@@ -306,15 +307,16 @@ def closest_match(heard: str, candidates: dict, min_score: float = 0.82, min_mar
         return None
     from .phrases import brightness_like, invalid_number, Rules
     # Numeric/monitor commands are exact; never guess a percentage or a target.
-    brightness = {p: v for p, v in candidates.items() if v.startswith("brightness_")}
     if brightness_like(text):
         if invalid_number(heard):
             return None
         monitors = {}
         import json
-        for p, value in brightness.items():
-            if p.startswith("set ") and " brightness to " in p:
-                monitors[p[4:].split(" brightness to ")[0]] = json.loads(value.split(":", 1)[1])["monitor"]
+        for p, value in candidates.items():
+            if value.startswith("brightness_") and p.startswith("set ") and " brightness to " in p:
+                name = p[4:].split(" brightness to ", 1)[0]
+                if name not in monitors:
+                    monitors[name] = json.loads(value.split(":", 1)[1])["monitor"]
         canonical = Rules(monitors=monitors).canonical(text)
         return (canonical, 1.0) if canonical in candidates else None
     candidates = {p: v for p, v in candidates.items() if not v.startswith("brightness_")}
@@ -332,14 +334,13 @@ def closest_match(heard: str, candidates: dict, min_score: float = 0.82, min_mar
     # of it that starts within the first few words (extra speech around the
     # command). Doing it in that order keeps "open stream io" from matching
     # "open steam" through its first two words.
-    stretches = [_squash(" ".join(words[start:end]))
+    match = _closest([_squash(text)], candidates, min_score, min_margin)
+    if match:
+        return match
+    stretches = {_squash(" ".join(words[start:end]))
                  for start in range(min(MAX_LEADING_WORDS + 1, len(words)))
-                 for end in range(start + 1, len(words) + 1)]
-    for windows in ([_squash(text)], sorted({w for w in stretches if len(w) >= 3})):
-        match = _closest(windows, candidates, min_score, min_margin)
-        if match:
-            return match
-    return None
+                 for end in range(start + 1, len(words) + 1)}
+    return _closest(sorted(w for w in stretches if len(w) >= 3), candidates, min_score, min_margin)
 
 
 def _closest(windows, candidates, min_score, min_margin):

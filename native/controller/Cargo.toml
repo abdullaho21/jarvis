@@ -1,6 +1,6 @@
 [package]
 name = "jarvis-controller"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.91"
 license = "MIT"
@@ -12,7 +12,6 @@ libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 tokio = { version = "=1.54.1", features = ["rt", "macros", "net", "io-util", "process", "signal", "sync", "time"] }
-unicode-normalization = "0.1"
 unicode-casefold = "0.2"
 regex = "1"
 shlex = "1"

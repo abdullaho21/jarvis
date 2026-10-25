@@ -35,10 +35,33 @@ pub fn color(cfg: &Value, monitor: &Value) -> Result<&'static str> {
         "sdr"
     })
 }
-fn gpu_args(color: &str) -> Vec<String> {
-    [
+fn gpu_args(color: &str, r: &Value) -> Vec<String> {
+    let codec = match r["codec"].as_str().unwrap_or("libx264") {
+        "av1" => {
+            if color == "hdr" {
+                "av1_hdr"
+            } else {
+                "av1"
+            }
+        }
+        "hevc" => {
+            if color == "hdr" {
+                "hevc_hdr"
+            } else {
+                "hevc"
+            }
+        }
+        _ => {
+            if color == "hdr" {
+                "hevc_hdr"
+            } else {
+                "h264"
+            }
+        }
+    };
+    let mut args: Vec<String> = [
         "-k",
-        if color == "hdr" { "hevc_hdr" } else { "h264" },
+        codec,
         "-cr",
         "limited",
         "-fallback-cpu-encoding",
@@ -46,7 +69,23 @@ fn gpu_args(color: &str) -> Vec<String> {
     ]
     .into_iter()
     .map(str::to_owned)
-    .collect()
+    .collect();
+    if r["rate_control"] == "bitrate" {
+        args.extend([
+            "-bm".into(),
+            "cbr".into(),
+            "-q".into(),
+            (r["bitrate_mbps"].as_u64().unwrap_or(8) * 1000).to_string(),
+        ]);
+    } else {
+        args.extend([
+            "-bm".into(),
+            "qp".into(),
+            "-q".into(),
+            r["quality_preset"].as_str().unwrap_or("very_high").into(),
+        ]);
+    }
+    args
 }
 pub fn replay_command(cfg: &Value, ipc: &Path, folder: &Path, color: &str) -> Vec<String> {
     let r = &cfg["recording"];
@@ -70,7 +109,7 @@ pub fn replay_command(cfg: &Value, ipc: &Path, folder: &Path, color: &str) -> Ve
         "-v".into(),
         "no".into(),
     ];
-    argv.extend(gpu_args(color));
+    argv.extend(gpu_args(color, r));
     let mut sources = vec![];
     if replay["game_audio"] == true {
         sources.push("default_output");
@@ -119,11 +158,11 @@ pub fn orphaned() -> Vec<u32> {
     }
     result
 }
-pub async fn verify(path: &Path, color: &str) -> Result<()> {
+pub async fn verify(path: &Path, color: &str, codec: Option<&str>) -> Result<()> {
     if !fs::metadata(path).is_ok_and(|m| m.len() > 0) {
         return err("The recorder produced no video data.");
     }
-    let data:Value=serde_json::from_str(&util::query(&["ffprobe".into(),"-v".into(),"error".into(),"-show_entries".into(),"stream=codec_type,width,height,pix_fmt,color_space,color_transfer,color_primaries,color_range".into(),"-of".into(),"json".into(),path.to_string_lossy().into()],10).await?)?;
+    let data:Value=serde_json::from_str(&util::query(&["ffprobe".into(),"-v".into(),"error".into(),"-show_entries".into(),"stream=codec_type,codec_name,width,height,pix_fmt,color_space,color_transfer,color_primaries,color_range".into(),"-of".into(),"json".into(),path.to_string_lossy().into()],10).await?)?;
     let video: Vec<_> = data["streams"]
         .as_array()
         .ok_or("The recorded file could not be validated.")?
@@ -136,6 +175,11 @@ pub async fn verify(path: &Path, color: &str) -> Result<()> {
         .collect();
     if video.is_empty() {
         return err("The output contains no valid video stream.");
+    }
+    if let Some(codec) = codec {
+        if !video.iter().any(|s| s["codec_name"] == codec) {
+            return err(format!("Video format verification failed: expected {codec}. Check GPU and driver support for the selected format."));
+        }
     }
     if color == "hdr"
         && !video.iter().any(|s| {
@@ -157,6 +201,7 @@ pub struct Capture {
     task: Option<tokio::task::JoinHandle<()>>,
     pub replay: bool,
     color: String,
+    codec: Option<String>,
     ipc: PathBuf,
 }
 impl Capture {
@@ -172,6 +217,7 @@ impl Capture {
             task: None,
             replay,
             color: "sdr".into(),
+            codec: None,
             ipc,
         }
     }
@@ -230,7 +276,21 @@ impl Capture {
             .find(|m| m["name"] == monitor)
             .ok_or("Capture source is unavailable. Choose a connected monitor.")?;
         self.color = color(r, display)?.into();
-        let backend = if self.replay || self.color == "hdr" {
+        self.codec = r["codec"]
+            .as_str()
+            .filter(|c| ["h264", "hevc", "av1"].contains(c))
+            .map(|c| {
+                if c == "h264" && self.color == "hdr" {
+                    "hevc"
+                } else {
+                    c
+                }
+                .to_owned()
+            });
+        let gpu = self.replay
+            || self.color == "hdr"
+            || ["h264", "hevc", "av1"].contains(&r["codec"].as_str().unwrap_or(""));
+        let backend = if gpu {
             "gpu-screen-recorder"
         } else {
             "wf-recorder"
@@ -255,7 +315,7 @@ impl Capture {
             if let Some(pid) = orphaned().first() {
                 return err(format!("A recorder from an earlier Murmur session is still running (PID {pid}). Stop it with: kill -INT {pid}"));
             }
-            let mut args = if self.color == "hdr" {
+            let mut args = if gpu {
                 let mut a = vec![
                     backend.into(),
                     "-w".into(),
@@ -267,7 +327,7 @@ impl Capture {
                     "-v".into(),
                     "no".into(),
                 ];
-                a.extend(gpu_args(&self.color));
+                a.extend(gpu_args(&self.color, r));
                 a
             } else {
                 vec![
@@ -282,15 +342,13 @@ impl Capture {
                     r["fps"].to_string(),
                 ]
             };
-            if self.color == "sdr" {
+            if !gpu {
                 if r["codec"] == "libx264" {
                     args.extend([
                         "--pixel-format".into(),
                         "yuv420p".into(),
                         "--codec-param".into(),
                         "preset=ultrafast".into(),
-                        "--codec-param".into(),
-                        format!("crf={}", r["quality"]),
                         "--codec-param".into(),
                         "threads=2".into(),
                     ]);
@@ -302,12 +360,26 @@ impl Capture {
                             "The selected VA-API render device is unavailable or not accessible.",
                         );
                     }
-                    args.extend([
-                        "--device".into(),
-                        device.into(),
-                        "--codec-param".into(),
-                        format!("qp={}", r["quality"]),
-                    ]);
+                    args.extend(["--device".into(), device.into()]);
+                }
+            }
+            if !gpu {
+                let params = if r["rate_control"] == "bitrate" {
+                    let bitrate = r["bitrate_mbps"].as_u64().unwrap_or(8) * 1_000_000;
+                    vec![
+                        format!("b={bitrate}"),
+                        format!("maxrate={bitrate}"),
+                        format!("bufsize={}", bitrate * 2),
+                    ]
+                } else {
+                    vec![format!(
+                        "{}={}",
+                        if r["codec"] == "libx264" { "crf" } else { "qp" },
+                        r["quality"]
+                    )]
+                };
+                for param in params {
+                    args.extend(["--codec-param".into(), param]);
                 }
             }
             let system = r["system_audio"] == true;
@@ -332,7 +404,7 @@ impl Capture {
                         );
                     }
                 }
-                if self.color == "hdr" {
+                if gpu {
                     args.extend(["-a".into(), device.into(), "-ac".into(), "aac".into()]);
                 } else {
                     args.extend([
@@ -357,7 +429,7 @@ impl Capture {
                 .create_new(true)
                 .mode(0o600)
                 .open(&partial)?;
-            args.extend(if self.color == "hdr" {
+            args.extend(if gpu {
                 vec!["-o".into(), partial.to_string_lossy().into()]
             } else {
                 vec![
@@ -402,6 +474,7 @@ impl Capture {
         let replay = self.replay;
         let status = self.status.clone();
         let color = self.color.clone();
+        let codec = self.codec.clone();
         self.set(
             if replay { "on" } else { "recording" },
             if replay {
@@ -446,7 +519,7 @@ impl Capture {
                             .collect::<String>()
                     ));
                 }
-                verify(&partial, &color).await?;
+                verify(&partial, &color, codec.as_deref()).await?;
                 fs::File::open(&partial)?.sync_all()?;
                 fs::hard_link(&partial, &final_path)?;
                 fs::remove_file(&partial)?;
@@ -529,7 +602,7 @@ impl Capture {
             }
             let output = PathBuf::from(reply["data"].as_str().unwrap());
             path = Some(output.clone());
-            verify(&output, &self.color).await?;
+            verify(&output, &self.color, self.codec.as_deref()).await?;
             Ok::<_, crate::Error>(output)
         })
         .await;

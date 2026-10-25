@@ -19,6 +19,10 @@ def _voice_engine() -> dict:
 
 
 def report():
+    from .host import is_windows
+    if is_windows():
+        from .windows.diagnostics import report as windows_report
+        return windows_report()
     commands = {}
     # Every external program Murmur actually runs, not just the main ones.
     for name, args in {"hyprctl": ["version"], "pw-cli": ["--version"], "pw-record": ["--version"],

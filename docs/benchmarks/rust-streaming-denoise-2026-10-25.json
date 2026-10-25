@@ -1,0 +1,417 @@
+{
+  "date": "2026-10-25",
+  "platform": "Linux-7.3.0-5-cachyos-x86_64-with-glibc2.44",
+  "fixture_sha256": "f15c60ec54059d8b66e410d0064945a0b0a04ea56e1ddca1958e493c0cf70e71",
+  "transcripts_identical": true,
+  "scope": "before/after Rust transcriber in fresh sequential processes; same weights, threads and public fixture variants; excludes Vosk, capture, service and UI",
+  "before": {
+    "worker": "rust",
+    "denoise": true,
+    "threads": 8,
+    "whisper": "rust-tract-0.23.9",
+    "binary_sha256": "36ac49ec20f473f31fdc650ea678cd137e5c20d25a892281ef34f3f09d6f485b",
+    "load_seconds": 1.71396515,
+    "loaded_rss_mib": 315.6953125,
+    "load_peak_rss_mib": 526.36328125,
+    "final_rss_mib": 320.375,
+    "peak_rss_mib": 526.36328125,
+    "median_decode_ms": 352.617972,
+    "total_cpu_seconds": 31.042675479,
+    "cases": [
+      {
+        "case": "clean",
+        "repeat": 0,
+        "text": "Go forward 10 meters",
+        "seconds": 0.348703752,
+        "decode_cpu_seconds": 1.4173291,
+        "settle_cpu_seconds": 5.970999999771465e-06,
+        "rss_mib": 319.171875
+      },
+      {
+        "case": "quiet",
+        "repeat": 0,
+        "text": "Go forward 10 meters.",
+        "seconds": 0.3558972,
+        "decode_cpu_seconds": 1.466976028,
+        "settle_cpu_seconds": 6.190000000572127e-06,
+        "rss_mib": 319.39453125
+      },
+      {
+        "case": "noise",
+        "repeat": 0,
+        "text": "Go forward 10 meters",
+        "seconds": 0.344362545,
+        "decode_cpu_seconds": 1.4316887559999998,
+        "settle_cpu_seconds": 6.964000000664328e-06,
+        "rss_mib": 319.97265625
+      },
+      {
+        "case": "long",
+        "repeat": 0,
+        "text": "Go forward 10 meters",
+        "seconds": 0.55171262,
+        "decode_cpu_seconds": 2.0640221480000003,
+        "settle_cpu_seconds": 6.460999999902128e-06,
+        "rss_mib": 320.2734375
+      },
+      {
+        "case": "silence",
+        "repeat": 0,
+        "text": "you",
+        "seconds": 0.259890769,
+        "decode_cpu_seconds": 1.0998146280000007,
+        "settle_cpu_seconds": 6.60200000091038e-06,
+        "rss_mib": 320.125
+      },
+      {
+        "case": "short",
+        "repeat": 0,
+        "text": "Go forward.",
+        "seconds": 0.253393937,
+        "decode_cpu_seconds": 1.144499056999999,
+        "settle_cpu_seconds": 4.39899999982174e-06,
+        "rss_mib": 320.09765625
+      },
+      {
+        "case": "slower",
+        "repeat": 0,
+        "text": "Go forward 10 meters.",
+        "seconds": 0.377521429,
+        "decode_cpu_seconds": 1.5269364189999983,
+        "settle_cpu_seconds": 5.310000000591231e-06,
+        "rss_mib": 320.171875
+      },
+      {
+        "case": "clean",
+        "repeat": 1,
+        "text": "Go forward 10 meters",
+        "seconds": 0.341485987,
+        "decode_cpu_seconds": 1.4191186180000006,
+        "settle_cpu_seconds": 7.513999999986254e-06,
+        "rss_mib": 320.16796875
+      },
+      {
+        "case": "quiet",
+        "repeat": 1,
+        "text": "Go forward 10 meters.",
+        "seconds": 0.352617972,
+        "decode_cpu_seconds": 1.4761310229999989,
+        "settle_cpu_seconds": 7.212999999950398e-06,
+        "rss_mib": 320.375
+      },
+      {
+        "case": "noise",
+        "repeat": 1,
+        "text": "Go forward 10 meters",
+        "seconds": 0.345201691,
+        "decode_cpu_seconds": 1.4153913189999994,
+        "settle_cpu_seconds": 7.683999999841262e-06,
+        "rss_mib": 320.375
+      },
+      {
+        "case": "long",
+        "repeat": 1,
+        "text": "Go forward 10 meters",
+        "seconds": 0.548196404,
+        "decode_cpu_seconds": 2.0359710890000002,
+        "settle_cpu_seconds": 4.479000001111899e-06,
+        "rss_mib": 320.48046875
+      },
+      {
+        "case": "silence",
+        "repeat": 1,
+        "text": "you",
+        "seconds": 0.271091303,
+        "decode_cpu_seconds": 1.1502670320000021,
+        "settle_cpu_seconds": 5.50100000040743e-06,
+        "rss_mib": 320.33203125
+      },
+      {
+        "case": "short",
+        "repeat": 1,
+        "text": "Go forward.",
+        "seconds": 0.260537041,
+        "decode_cpu_seconds": 1.1959614749999972,
+        "settle_cpu_seconds": 4.52899999814349e-06,
+        "rss_mib": 320.29296875
+      },
+      {
+        "case": "slower",
+        "repeat": 1,
+        "text": "Go forward 10 meters.",
+        "seconds": 0.378515869,
+        "decode_cpu_seconds": 1.5466859730000024,
+        "settle_cpu_seconds": 5.019999999689162e-06,
+        "rss_mib": 320.37109375
+      },
+      {
+        "case": "clean",
+        "repeat": 2,
+        "text": "Go forward 10 meters",
+        "seconds": 0.353529014,
+        "decode_cpu_seconds": 1.4579190089999976,
+        "settle_cpu_seconds": 7.263000000534703e-06,
+        "rss_mib": 320.37890625
+      },
+      {
+        "case": "quiet",
+        "repeat": 2,
+        "text": "Go forward 10 meters.",
+        "seconds": 0.360761195,
+        "decode_cpu_seconds": 1.488835703000003,
+        "settle_cpu_seconds": 8.565000001681256e-06,
+        "rss_mib": 320.3828125
+      },
+      {
+        "case": "noise",
+        "repeat": 2,
+        "text": "Go forward 10 meters",
+        "seconds": 0.367757762,
+        "decode_cpu_seconds": 1.5053961089999994,
+        "settle_cpu_seconds": 7.884999998708508e-06,
+        "rss_mib": 320.37109375
+      },
+      {
+        "case": "long",
+        "repeat": 2,
+        "text": "Go forward 10 meters",
+        "seconds": 0.636119214,
+        "decode_cpu_seconds": 2.347810638000002,
+        "settle_cpu_seconds": 7.1830000010209005e-06,
+        "rss_mib": 320.484375
+      },
+      {
+        "case": "silence",
+        "repeat": 2,
+        "text": "you",
+        "seconds": 0.269897937,
+        "decode_cpu_seconds": 1.1398442320000015,
+        "settle_cpu_seconds": 6.4319999992790144e-06,
+        "rss_mib": 320.33203125
+      },
+      {
+        "case": "short",
+        "repeat": 2,
+        "text": "Go forward.",
+        "seconds": 0.255201445,
+        "decode_cpu_seconds": 1.1724564589999993,
+        "settle_cpu_seconds": 5.270999999140713e-06,
+        "rss_mib": 320.30078125
+      },
+      {
+        "case": "slower",
+        "repeat": 2,
+        "text": "Go forward 10 meters.",
+        "seconds": 0.379691331,
+        "decode_cpu_seconds": 1.5394864829999975,
+        "settle_cpu_seconds": 7.744999997782998e-06,
+        "rss_mib": 320.375
+      }
+    ]
+  },
+  "after": {
+    "worker": "rust",
+    "denoise": true,
+    "threads": 8,
+    "whisper": "rust-tract-0.23.9",
+    "binary_sha256": "d7e7ab48b3275c43eb9b56a197d612ee8945f30a0a3eb6cfe62c2bf511195b12",
+    "load_seconds": 1.753831616,
+    "loaded_rss_mib": 316.31640625,
+    "load_peak_rss_mib": 342.55859375,
+    "final_rss_mib": 321.13671875,
+    "peak_rss_mib": 438.1328125,
+    "median_decode_ms": 381.042325,
+    "total_cpu_seconds": 32.320946945,
+    "cases": [
+      {
+        "case": "clean",
+        "repeat": 0,
+        "text": "Go forward 10 meters",
+        "seconds": 0.348298376,
+        "decode_cpu_seconds": 1.3895742960000002,
+        "settle_cpu_seconds": 5.4099999999834836e-06,
+        "rss_mib": 319.72265625
+      },
+      {
+        "case": "quiet",
+        "repeat": 0,
+        "text": "Go forward 10 meters.",
+        "seconds": 0.390812805,
+        "decode_cpu_seconds": 1.6252439419999996,
+        "settle_cpu_seconds": 6.9739999997153745e-06,
+        "rss_mib": 320.31640625
+      },
+      {
+        "case": "noise",
+        "repeat": 0,
+        "text": "Go forward 10 meters",
+        "seconds": 0.337609479,
+        "decode_cpu_seconds": 1.3778544899999998,
+        "settle_cpu_seconds": 6.50299999982451e-06,
+        "rss_mib": 320.3125
+      },
+      {
+        "case": "long",
+        "repeat": 0,
+        "text": "Go forward 10 meters",
+        "seconds": 0.546454672,
+        "decode_cpu_seconds": 1.9973178519999992,
+        "settle_cpu_seconds": 7.4340000004724516e-06,
+        "rss_mib": 320.81640625
+      },
+      {
+        "case": "silence",
+        "repeat": 0,
+        "text": "you",
+        "seconds": 0.290148409,
+        "decode_cpu_seconds": 1.2628352740000004,
+        "settle_cpu_seconds": 8.636000000450395e-06,
+        "rss_mib": 320.6796875
+      },
+      {
+        "case": "short",
+        "repeat": 0,
+        "text": "Go forward.",
+        "seconds": 0.390363396,
+        "decode_cpu_seconds": 1.5653729349999992,
+        "settle_cpu_seconds": 7.914999999414363e-06,
+        "rss_mib": 320.84375
+      },
+      {
+        "case": "slower",
+        "repeat": 0,
+        "text": "Go forward 10 meters.",
+        "seconds": 0.410683029,
+        "decode_cpu_seconds": 1.6519164459999995,
+        "settle_cpu_seconds": 8.286000001689331e-06,
+        "rss_mib": 320.9140625
+      },
+      {
+        "case": "clean",
+        "repeat": 1,
+        "text": "Go forward 10 meters",
+        "seconds": 0.399115351,
+        "decode_cpu_seconds": 1.581076887,
+        "settle_cpu_seconds": 7.684999999924003e-06,
+        "rss_mib": 321.1171875
+      },
+      {
+        "case": "quiet",
+        "repeat": 1,
+        "text": "Go forward 10 meters.",
+        "seconds": 0.394434392,
+        "decode_cpu_seconds": 1.6467283409999993,
+        "settle_cpu_seconds": 8.454999999685242e-06,
+        "rss_mib": 321.12109375
+      },
+      {
+        "case": "noise",
+        "repeat": 1,
+        "text": "Go forward 10 meters",
+        "seconds": 0.334904245,
+        "decode_cpu_seconds": 1.3766249389999992,
+        "settle_cpu_seconds": 1.002899999846818e-05,
+        "rss_mib": 321.12109375
+      },
+      {
+        "case": "long",
+        "repeat": 1,
+        "text": "Go forward 10 meters",
+        "seconds": 0.591592631,
+        "decode_cpu_seconds": 2.1253405450000002,
+        "settle_cpu_seconds": 6.442000000106418e-06,
+        "rss_mib": 321.22265625
+      },
+      {
+        "case": "silence",
+        "repeat": 1,
+        "text": "you",
+        "seconds": 0.278635204,
+        "decode_cpu_seconds": 1.1915699259999997,
+        "settle_cpu_seconds": 7.7149999988535e-06,
+        "rss_mib": 321.08203125
+      },
+      {
+        "case": "short",
+        "repeat": 1,
+        "text": "Go forward.",
+        "seconds": 0.279144718,
+        "decode_cpu_seconds": 1.2966831469999995,
+        "settle_cpu_seconds": 7.093999997209721e-06,
+        "rss_mib": 321.05078125
+      },
+      {
+        "case": "slower",
+        "repeat": 1,
+        "text": "Go forward 10 meters.",
+        "seconds": 0.381042325,
+        "decode_cpu_seconds": 1.5231370049999988,
+        "settle_cpu_seconds": 6.7630000017970815e-06,
+        "rss_mib": 321.12109375
+      },
+      {
+        "case": "clean",
+        "repeat": 2,
+        "text": "Go forward 10 meters",
+        "seconds": 0.347044135,
+        "decode_cpu_seconds": 1.4183421180000018,
+        "settle_cpu_seconds": 6.9129999999972824e-06,
+        "rss_mib": 321.12109375
+      },
+      {
+        "case": "quiet",
+        "repeat": 2,
+        "text": "Go forward 10 meters.",
+        "seconds": 0.381534015,
+        "decode_cpu_seconds": 1.5598737749999998,
+        "settle_cpu_seconds": 7.624000001982267e-06,
+        "rss_mib": 321.12890625
+      },
+      {
+        "case": "noise",
+        "repeat": 2,
+        "text": "Go forward 10 meters",
+        "seconds": 0.363062507,
+        "decode_cpu_seconds": 1.479953769999998,
+        "settle_cpu_seconds": 7.063999998280224e-06,
+        "rss_mib": 321.12890625
+      },
+      {
+        "case": "long",
+        "repeat": 2,
+        "text": "Go forward 10 meters",
+        "seconds": 0.599550135,
+        "decode_cpu_seconds": 2.194614668,
+        "settle_cpu_seconds": 6.3610000005098755e-06,
+        "rss_mib": 321.234375
+      },
+      {
+        "case": "silence",
+        "repeat": 2,
+        "text": "you",
+        "seconds": 0.283000456,
+        "decode_cpu_seconds": 1.2295204900000023,
+        "settle_cpu_seconds": 9.417000001121778e-06,
+        "rss_mib": 321.09375
+      },
+      {
+        "case": "short",
+        "repeat": 2,
+        "text": "Go forward.",
+        "seconds": 0.273605096,
+        "decode_cpu_seconds": 1.2737298680000002,
+        "settle_cpu_seconds": 7.404000001542954e-06,
+        "rss_mib": 321.06640625
+      },
+      {
+        "case": "slower",
+        "repeat": 2,
+        "text": "Go forward 10 meters.",
+        "seconds": 0.384571858,
+        "decode_cpu_seconds": 1.553478914000003,
+        "settle_cpu_seconds": 7.193000001848304e-06,
+        "rss_mib": 321.13671875
+      }
+    ]
+  }
+}

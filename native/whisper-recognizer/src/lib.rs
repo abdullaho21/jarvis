@@ -3,6 +3,7 @@
 mod embedding;
 mod features;
 mod graph;
+mod model;
 mod quantize;
 mod scale;
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -14,11 +15,11 @@ use std::{
     sync::Arc,
 };
 use tract_linalg::multithread::Executor;
+use tract_onnx::prelude::*;
 use tract_onnx::tract_core::{
     internal::{ensure, format_err},
     runtime::RunOptions,
 };
-use tract_onnx::{pb, prelude::*};
 const STATE: usize = 768;
 const LAYERS: usize = 12;
 const VOCAB: usize = 51864;
@@ -44,13 +45,6 @@ fn plan(model: TypedModel, pool: &Arc<rayon::ThreadPool>) -> TractResult<Arc<Typ
         },
     )
 }
-fn proto(path: &Path, limit: u64) -> TractResult<pb::ModelProto> {
-    ensure!(
-        std::fs::metadata(path)?.len() <= limit,
-        "Whisper model exceeds size limit"
-    );
-    tract_onnx::onnx().proto_model_for_path(path)
-}
 impl Recognizer {
     pub fn load(
         encoder: impl AsRef<Path>,
@@ -65,47 +59,19 @@ impl Recognizer {
                 .thread_name(|n| format!("whisper-{n}"))
                 .build()?,
         );
+        let encoder = encoder.as_ref().canonicalize()?;
+        let decoder = decoder.as_ref().canonicalize()?;
+        let encoder_dir = encoder
+            .parent()
+            .and_then(Path::to_str)
+            .ok_or_else(|| format_err!("Expected UTF-8 model directory"))?;
+        let decoder_dir = decoder
+            .parent()
+            .and_then(Path::to_str)
+            .ok_or_else(|| format_err!("Expected UTF-8 model directory"))?;
         let loader = tract_onnx::onnx();
-        let p = proto(decoder.as_ref(), 280 * 1024 * 1024)?;
-        let g = p
-            .graph
-            .as_ref()
-            .ok_or_else(|| format_err!("Missing decoder graph"))?;
-        graph::check_export(g, 0xcd61_f134_021f_2a7b)?;
-        ensure!(
-            g.input.iter().map(|v| v.name.as_str()).eq([
-                "tokens",
-                "in_n_layer_self_k_cache",
-                "in_n_layer_self_v_cache",
-                "n_layer_cross_k",
-                "n_layer_cross_v",
-                "offset"
-            ]),
-            "Unexpected decoder interface"
-        );
-        let tensor = |name: &str| -> TractResult<Tensor> {
-            let t = g
-                .initializer
-                .iter()
-                .find(|t| t.name == name)
-                .ok_or_else(|| format_err!("Missing {name}"))?;
-            tract_onnx::tensor::load_tensor(&*loader.provider, t, None)
-        };
-        let embedding = tensor("textDecoder.token_embedding.weight")?;
-        let positions = tensor("textDecoder.positional_embedding")?;
-        ensure!(
-            embedding.shape() == [VOCAB, STATE] && positions.shape() == [448, STATE],
-            "Unexpected embedding shape"
-        );
-        let embedding = Embedding::new(embedding)?;
-        let blocks = (0..LAYERS)
-            .map(|i| plan(graph::Builder::new(g).block(i)?, &pool))
-            .collect::<TractResult<Vec<_>>>()?;
-        let norm = plan(graph::Builder::new(g).final_norm()?, &pool)?;
-        drop(p);
-        // Import the decoder first: its larger protobuf and embedding copies
-        // are released before encoder compilation adds resident weights.
-        let mut p = proto(encoder.as_ref(), 128 * 1024 * 1024)?;
+        // Compile the encoder before adding resident decoder weights.
+        let (mut p, _) = model::load(&encoder, 128 * 1024 * 1024, false)?;
         let meta: HashMap<_, _> = p
             .metadata_props
             .iter()
@@ -142,12 +108,55 @@ impl Recognizer {
             "Unexpected encoder interface"
         );
         graph::check_export(p.graph.as_ref().unwrap(), 0x8739_0418_f7ca_a917)?;
+        graph::split_encoder_outputs(&mut p)?;
         graph::clear_shapes(&mut p)?;
-        let mut model = loader.model_for_proto_model(&p)?;
+        let parsed = loader.parse(&p, Some(encoder_dir))?;
+        ensure!(
+            parsed.unresolved_inputs.is_empty(),
+            "Unresolved encoder inputs"
+        );
+        let mut model = parsed.model;
         drop(p);
         let f = model.symbols.sym("F");
         model.set_input_fact(0, f32::fact([1.to_dim(), 80.to_dim(), f.to_dim()]).into())?;
         let encoder = plan(model.into_optimized()?, &pool)?;
+
+        let (p, embedding) = model::load(&decoder, 280 * 1024 * 1024, true)?;
+        let embedding = embedding.ok_or_else(|| format_err!("Missing embedding"))?;
+        let g = p
+            .graph
+            .as_ref()
+            .ok_or_else(|| format_err!("Missing decoder graph"))?;
+        graph::check_export(g, 0xcd61_f134_021f_2a7b)?;
+        ensure!(
+            g.input.iter().map(|v| v.name.as_str()).eq([
+                "tokens",
+                "in_n_layer_self_k_cache",
+                "in_n_layer_self_v_cache",
+                "n_layer_cross_k",
+                "n_layer_cross_v",
+                "offset"
+            ]),
+            "Unexpected decoder interface"
+        );
+        let tensor = |name: &str| -> TractResult<Tensor> {
+            let t = g
+                .initializer
+                .iter()
+                .find(|t| t.name == name)
+                .ok_or_else(|| format_err!("Missing {name}"))?;
+            tract_onnx::tensor::load_tensor(&*loader.provider, t, Some(decoder_dir))
+        };
+        let positions = tensor("textDecoder.positional_embedding")?;
+        ensure!(
+            embedding.shape() == [VOCAB, STATE] && positions.shape() == [448, STATE],
+            "Unexpected embedding shape"
+        );
+        let blocks = (0..LAYERS)
+            .map(|i| plan(graph::Builder::new(g, decoder_dir).block(i)?, &pool))
+            .collect::<TractResult<Vec<_>>>()?;
+        let norm = plan(graph::Builder::new(g, decoder_dir).final_norm()?, &pool)?;
+        drop(p);
 
         ensure!(
             std::fs::metadata(tokens.as_ref())?.len() <= 2 * 1024 * 1024,
@@ -212,32 +221,33 @@ impl Recognizer {
         )?;
         let encoder_seconds = encoder_start.elapsed().as_secs_f64();
         let decoder_start = std::time::Instant::now();
+        ensure!(
+            cross.len() == LAYERS * 2 && cross.iter().all(|t| t.rank() == 4),
+            "Unexpected encoder outputs"
+        );
         let time = cross[0].shape()[2];
+        ensure!(
+            cross.iter().all(|t| t.shape() == [1, 1, time, STATE]),
+            "Unexpected cross-cache shape"
+        );
         if let Some(dir) = trace {
-            write_tensor(&dir.join("cross-k.f32"), &cross[0])?;
-            write_tensor(&dir.join("cross-v.f32"), &cross[1])?;
+            write_tensors(
+                &dir.join("cross-k.f32"),
+                cross[..LAYERS].iter().map(|v| &**v),
+            )?;
+            write_tensors(
+                &dir.join("cross-v.f32"),
+                cross[LAYERS..].iter().map(|v| &**v),
+            )?;
         }
-        let mut keys = Vec::with_capacity(LAYERS);
-        let mut values = Vec::with_capacity(LAYERS);
-        for layer in 0..LAYERS {
-            let start = layer * time * STATE;
-            let end = start + time * STATE;
-            keys.push(
-                Tensor::from_shape(
-                    &[1, time, STATE],
-                    &cross[0].try_as_plain_ram()?.as_slice::<f32>()?[start..end],
-                )?
-                .into_tvalue(),
-            );
-            values.push(
-                Tensor::from_shape(
-                    &[1, time, STATE],
-                    &cross[1].try_as_plain_ram()?.as_slice::<f32>()?[start..end],
-                )?
-                .into_tvalue(),
-            );
-        }
-        drop(cross);
+        let mut cross = cross
+            .into_iter()
+            .map(|t| Ok(t.into_tensor().into_shape(&[1, time, STATE])?.into_tvalue()));
+        let keys = cross
+            .by_ref()
+            .take(LAYERS)
+            .collect::<TractResult<Vec<_>>>()?;
+        let values = cross.collect::<TractResult<Vec<_>>>()?;
         let mut k = (0..LAYERS)
             .map(|_| Ok(Tensor::zero::<f32>(&[1, 0, STATE])?.into_tvalue()))
             .collect::<TractResult<Vec<_>>>()?;
@@ -363,6 +373,9 @@ fn run(
         })
 }
 fn write_tensor(path: &Path, tensor: &Tensor) -> TractResult<()> {
+    write_tensors(path, std::iter::once(tensor))
+}
+fn write_tensors<'a>(path: &Path, tensors: impl Iterator<Item = &'a Tensor>) -> TractResult<()> {
     use std::io::Write;
     let mut out = std::io::BufWriter::new(
         std::fs::OpenOptions::new()
@@ -370,8 +383,10 @@ fn write_tensor(path: &Path, tensor: &Tensor) -> TractResult<()> {
             .create_new(true)
             .open(path)?,
     );
-    for value in tensor.try_as_plain_ram()?.as_slice::<f32>()? {
-        out.write_all(&value.to_le_bytes())?;
+    for tensor in tensors {
+        for value in tensor.try_as_plain_ram()?.as_slice::<f32>()? {
+            out.write_all(&value.to_le_bytes())?;
+        }
     }
     out.flush()?;
     Ok(())

@@ -100,6 +100,7 @@ uses a longer graceful interval for file finalization.
 
 ## Trust boundaries
 
+
 Speech never becomes shell text. The parser only produces typed intents from
 an allowlist. Hyprland workspace IDs are integers 1–10, window focus uses an
 address returned by Hyprland, and fullscreen is an idempotent set/unset action.
@@ -143,9 +144,10 @@ lifetime, and `ui` is a native client. A different desktop can implement the
 desktop query/dispatch adapter without teaching the parser shell commands.
 Only Hyprland is implemented and verified here.
 
-An optional Rust worker implements the same voice-process boundary and JSON
-protocol. The daemon chooses it with `MURMUR_VOICE_WORKER=rust`; Python remains
-the default. Paths and command-to-intent candidates are prepared without
+The Rust worker implements the same voice-process boundary and JSON protocol.
+The Linux daemon prefers it when the executable, Vosk library and model are
+available. Windows, PocketSphinx and source-only installations use Python.
+`MURMUR_VOICE_WORKER=rust` or `python` explicitly selects either implementation. Paths and command-to-intent candidates are prepared without
 importing speech libraries in the daemon. See [Rust worker](rust-voice.md) for
 build instructions, model parity, measured memory savings and prototype limits.
 Whisper and GTCRN computation in this worker now uses Rust/tract kernels and

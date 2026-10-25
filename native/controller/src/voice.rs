@@ -143,7 +143,7 @@ pub fn prepare(
 pub fn available() -> bool {
     binary().is_ok() && vosk_library().is_ok()
 }
-pub fn ui_argv(page: &str) -> Result<Vec<String>> {
+pub fn python() -> Result<PathBuf> {
     let python = env::var_os("MURMUR_UI_PYTHON")
         .map(PathBuf::from)
         .or_else(|| {
@@ -153,8 +153,11 @@ pub fn ui_argv(page: &str) -> Result<Vec<String>> {
         })
         .or_else(|| util::which("python3"))
         .ok_or("Python settings client is unavailable")?;
+    Ok(python)
+}
+pub fn ui_argv(page: &str) -> Result<Vec<String>> {
     util::desktop_argv(vec![
-        python.to_string_lossy().into_owned(),
+        python()?.to_string_lossy().into_owned(),
         "-m".into(),
         "murmur".into(),
         "ui".into(),

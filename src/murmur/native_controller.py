@@ -4,6 +4,9 @@ from pathlib import Path
 
 
 def selected_binary():
+    from .host import is_windows
+    if is_windows():
+        return None
     selection = os.environ.get("MURMUR_CONTROLLER", "python")
     if selection == "python":
         return None

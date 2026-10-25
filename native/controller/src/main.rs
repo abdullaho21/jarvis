@@ -34,19 +34,168 @@ async fn connection(
     }
     let (read, mut write) = stream.into_split();
     let mut reader = BufReader::new(read);
-    let result=async{
-        let bytes=timeout(Duration::from_secs(5),util::line(&mut reader,65536)).await??.ok_or("Request must be a JSON object")?;
-        let payload:Value=serde_json::from_slice(&bytes)?;if !payload.is_object(){return err("Request must be a JSON object");}
-        if payload["op"]=="watch"{let initial=status.borrow_and_update().clone();write_json(&mut write,&initial).await?;let mut byte=[0];loop{tokio::select!{_=reader.read(&mut byte)=>break,changed=status.changed()=>{if changed.is_err(){break;}let value=status.borrow_and_update().clone();write_json(&mut write,&value).await?;}}}return Ok(());}
-        let wait_seconds = if payload["op"] == "brightness_monitors" { 150 } else { 60 };
-        let (reply,rx)=oneshot::channel();events.send(service::Message::Request(payload,reply)).await.map_err(|_|"Service is stopping")?;
-        let response=timeout(Duration::from_secs(wait_seconds),rx).await??;write_json(&mut write,&response).await?;Ok::<_,Error>(())
-    }.await;
+    let result = async {
+        let bytes = timeout(Duration::from_secs(5), util::line(&mut reader, 65536))
+            .await??
+            .ok_or("Request must be a JSON object")?;
+        let payload: Value = serde_json::from_slice(&bytes)?;
+        if !payload.is_object() {
+            return err("Request must be a JSON object");
+        }
+        if payload["op"] == "watch" {
+            let initial = status.borrow_and_update().clone();
+            write_json(&mut write, &initial).await?;
+            let mut byte = [0];
+            loop {
+                tokio::select! {
+                    _ = reader.read(&mut byte) => break,
+                    changed = status.changed() => {
+                        if changed.is_err() {
+                            break;
+                        }
+                        let value = status.borrow_and_update().clone();
+                        write_json(&mut write, &value).await?;
+                    }
+                }
+            }
+            return Ok(());
+        }
+        let wait_seconds = if payload["op"] == "brightness_monitors" {
+            150
+        } else {
+            60
+        };
+        let (reply, rx) = oneshot::channel();
+        events
+            .send(service::Message::Request(payload, reply))
+            .await
+            .map_err(|_| "Service is stopping")?;
+        let response = timeout(Duration::from_secs(wait_seconds), rx).await??;
+        write_json(&mut write, &response).await?;
+        Ok::<_, Error>(())
+    }
+    .await;
     if let Err(error) = result {
         let _ = write_json(&mut write, &json!({"ok":false,"error":error.to_string()})).await;
     }
     Ok(())
 }
+fn response(result: Result<Value>) -> Value {
+    match result {
+        Ok(value) => value,
+        Err(error) => json!({"ok":false,"error":error.to_string()}),
+    }
+}
+
+async fn discover(op: &str) -> Result<Value> {
+    match op {
+        "devices" => Ok(json!({"ok":true,"devices":desktop::devices().await?})),
+        "brightness_monitors" => {
+            Ok(json!({"ok":true,"monitors":jarvis_controller::brightness::inventory().await?}))
+        }
+        "monitors" => Ok(json!({"ok":true,"monitors":desktop::monitors().await?})),
+        _ => {
+            let devices = desktop::audio_sources().await?;
+            let devices: Vec<_> = devices
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|d| json!({"id":d["name"],"name":d["description"],"monitor":d["monitor"]}))
+                .collect();
+            Ok(json!({"ok":true,"devices":devices}))
+        }
+    }
+}
+
+async fn request(service: &mut service::Service, payload: Value, reply: service::Reply) {
+    let op = payload["op"].as_str().unwrap_or("");
+    if op == "set_startup" {
+        let Some(enabled) = payload["enabled"].as_bool() else {
+            let _ = reply.send(json!({"ok":false,"error":"Startup must be true or false"}));
+            return;
+        };
+        let events = service.events.clone();
+        tokio::spawn(async move {
+            let result = util::query(
+                &[
+                    "systemctl".into(),
+                    "--user".into(),
+                    if enabled {
+                        "enable".into()
+                    } else {
+                        "disable".into()
+                    },
+                    "murmur.service".into(),
+                ],
+                5,
+            )
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+            let _ = events
+                .send(service::Message::StartupDone(enabled, result, reply))
+                .await;
+        });
+        return;
+    }
+    if matches!(
+        op,
+        "devices" | "recording_devices" | "monitors" | "brightness_monitors"
+    ) {
+        // External servers can be slow. Discovery stays outside the state actor
+        // so status, cancellation and mute can still be processed immediately.
+        tokio::spawn(async move {
+            let result = discover(payload["op"].as_str().unwrap()).await;
+            let _ = reply.send(response(result));
+        });
+        return;
+    }
+    let phrase = match op {
+        "execute" => payload["phrase"].as_str(),
+        "record_start" => Some("start recording"),
+        "record_stop" => Some("stop recording"),
+        "replay_start" => Some("start replay"),
+        "replay_stop" => Some("stop replay"),
+        "replay_save" => Some("save replay"),
+        _ => None,
+    };
+    if let Some(phrase) = phrase {
+        service.execute(phrase, Some(reply), None, None).await;
+    } else {
+        let _ = reply.send(response(service.handle(&payload).await));
+    }
+}
+
+async fn message(service: &mut service::Service, message: service::Message) {
+    use service::Message;
+    match message {
+        Message::Request(payload, reply) => request(service, payload, reply).await,
+        Message::Voice(generation, event) => {
+            if let Err(error) = service.event(generation, event).await {
+                service
+                    .voice_end(generation, format!("Voice worker failed: {error}"))
+                    .await;
+            }
+        }
+        Message::VoiceEnd(generation, detail) => service.voice_end(generation, detail).await,
+        Message::StartupDone(enabled, result, reply) => {
+            let _ = reply.send(response(service.startup_done(enabled, result)));
+        }
+        Message::ActionDone {
+            result,
+            reply,
+            generation,
+            heard,
+            capture,
+        } => {
+            service.complete(result, reply, generation, heard, capture);
+            if let Some((generation, detail)) = service.completed_voice_end() {
+                service.voice_end(generation, detail).await;
+            }
+        }
+    }
+}
+
 async fn serve() -> Result<()> {
     let config = config::load()?;
     let path = jarvis_controller::ipc::socket_path();
@@ -90,54 +239,23 @@ async fn serve() -> Result<()> {
     }
     let limits = Arc::new(Semaphore::new(64));
     loop {
-        tokio::select! {biased;
-            _=terminate.recv()=>break,
-            _=interrupt.recv()=>break,
-            Some(message)=messages.recv()=>{match message{
-                service::Message::Request(payload,reply)=>{
-                if payload["op"]=="set_startup" {
-                    let Some(enabled)=payload["enabled"].as_bool() else {let _=reply.send(json!({"ok":false,"error":"Startup must be true or false"}));continue;};
-                    let tx=events.clone();
-                    tokio::spawn(async move{
-                        let result=util::query(&["systemctl".into(),"--user".into(),if enabled{"enable".into()}else{"disable".into()},"murmur.service".into()],5).await.map(|_|()).map_err(|e|e.to_string());
-                        let _=tx.send(service::Message::StartupDone(enabled,result,reply)).await;
-                    });
-                    continue;
-                }
-                if matches!(payload["op"].as_str(),Some("devices"|"recording_devices"|"monitors"|"brightness_monitors")) {
-                    // Discovery can wait on an external server. Keep those
-                    // queries outside the state actor so mute stays responsive.
+        tokio::select! { biased;
+            _ = terminate.recv() => break,
+            _ = interrupt.recv() => break,
+            Some(event) = messages.recv() => message(&mut service, event).await,
+            Ok(()) = service.recording_updates.changed() => service.capture_changed(),
+            Ok(()) = service.replay_updates.changed() => service.capture_changed(),
+            accepted = listener.accept() => {
+                let (stream, _) = accepted?;
+                if let Ok(permit) = limits.clone().try_acquire_owned() {
+                    let events = events.clone();
+                    let status = service.updates.subscribe();
                     tokio::spawn(async move {
-                        let result:Result<Value>=async {
-                            match payload["op"].as_str().unwrap(){
-                                "devices"=>Ok(json!({"ok":true,"devices":desktop::devices().await?})),
-                                "brightness_monitors"=>Ok(json!({"ok":true,"monitors":jarvis_controller::brightness::inventory().await?})),
-                                "monitors"=>Ok(json!({"ok":true,"monitors":desktop::monitors().await?})),
-                                _=>{let devices=desktop::audio_sources().await?;Ok(json!({"ok":true,"devices":devices.as_array().unwrap().iter().map(|d|json!({"id":d["name"],"name":d["description"],"monitor":d["monitor"]})).collect::<Vec<_>>()}))}
-                            }
-                        }.await;
-                        let response=match result{Ok(v)=>v,Err(e)=>json!({"ok":false,"error":e.to_string()})};
-                        let _=reply.send(response);
+                        let _permit = permit;
+                        let _ = connection(stream, events, status).await;
                     });
-                    continue;
                 }
-                    let phrase=match payload["op"].as_str(){Some("execute")=>payload["phrase"].as_str().map(str::to_owned),Some("record_start")=>Some("start recording".into()),Some("record_stop")=>Some("stop recording".into()),Some("replay_start")=>Some("start replay".into()),Some("replay_stop")=>Some("stop replay".into()),Some("replay_save")=>Some("save replay".into()),_=>None};
-                    if let Some(phrase)=phrase{service.execute(&phrase,Some(reply),None,None).await;}else{let response=match service.handle(&payload).await{Ok(v)=>v,Err(e)=>json!({"ok":false,"error":e.to_string()})};let _=reply.send(response);}
-                },
-                service::Message::Voice(g,event)=>{if let Err(e)=service.event(g,event).await{service.voice_end(g,format!("Voice worker failed: {e}")).await;}},
-                service::Message::VoiceEnd(g,message)=>service.voice_end(g,message).await,
-            service::Message::StartupDone(enabled,result,reply)=>{
-                let response=match service.startup_done(enabled,result){Ok(value)=>value,Err(e)=>json!({"ok":false,"error":e.to_string()})};
-                let _=reply.send(response);
-            },
-            service::Message::ActionDone{result,reply,generation,heard,capture}=>{
-                service.complete(result,reply,generation,heard,capture);
-                if let Some((g,message))=service.completed_voice_end(){service.voice_end(g,message).await;}
             }
-            }},
-            Ok(())=service.recording_updates.changed()=>service.capture_changed(),
-            Ok(())=service.replay_updates.changed()=>service.capture_changed(),
-            accepted=listener.accept()=>{let (stream,_)=accepted?;if let Ok(permit)=limits.clone().try_acquire_owned(){let tx=events.clone();let rx=service.updates.subscribe();tokio::spawn(async move{let _permit=permit;let _=connection(stream,tx,rx).await;});}}
         }
     }
     service.shutdown().await;

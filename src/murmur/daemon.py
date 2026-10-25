@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import importlib.util
 import json
 import os
@@ -16,12 +15,20 @@ import threading
 
 from . import config as configuration
 from .actions import Dispatcher
-from .apps import AppRegistry
+from .host import is_windows, child_options
+if is_windows():
+    from .windows.apps import AppRegistry
+else:
+    from .apps import AppRegistry
 from .client import socket_path
 from .commands import REFERENCE, CommandError, Parser, normalize
-from .hyprland import Hyprland
-from .recorder import Recorder, audio_sources
-from .replay import Replay
+if is_windows():
+    from .windows.desktop import Desktop as Hyprland
+    from .windows.capture import Recorder, Replay, audio_sources
+else:
+    from .hyprland import Hyprland
+    from .recorder import Recorder, audio_sources
+    from .replay import Replay
 from .state import Activation
 from .desktop_process import desktop_argv
 
@@ -53,6 +60,12 @@ class Service:
         self.tasks: set[asyncio.Task] = set()
         self.voice_available = (importlib.util.find_spec("pocketsphinx") is not None
                                 or importlib.util.find_spec("vosk") is not None)
+        self.desktop_executor = None
+        if is_windows():
+            from concurrent.futures import ThreadPoolExecutor
+            import pythoncom
+            self.desktop_executor = ThreadPoolExecutor(max_workers=1, initializer=pythoncom.CoInitialize, thread_name_prefix="jarvis-com")
+        self.tray = None
         self.engine = None
         self.gate = None
         self.dispatcher = Dispatcher(self.apps, self.desktop, self.recorder, self.pause_from_action, self.open_ui,
@@ -67,7 +80,19 @@ class Service:
                 "microphone_open": self.worker is not None,
                 "mic_test": self.worker is not None and self.worker_mode == "test"}
 
+    async def desktop_call(self, func, *args):
+        if self.desktop_executor is None:
+            return await asyncio.to_thread(func, *args)
+        try:
+            return await asyncio.get_running_loop().run_in_executor(self.desktop_executor, func, *args)
+        except (CommandError, ValueError, OSError, RuntimeError):
+            raise
+        except Exception as exc:
+            raise CommandError(f"Windows could not complete this action: {exc}") from exc
+
     def publish(self):
+        if self.tray:
+            self.tray.update(self.status())
         message = {"ok": True, "status": self.status()}
         for queue in tuple(self.watchers):
             if queue.full():
@@ -127,6 +152,11 @@ class Service:
         self.loop.call_soon_threadsafe(lambda: self.background(self.set_mute(True), "mute"))
 
     def open_ui(self, page):
+        if is_windows():
+            from .host import command, child_options
+            proc = subprocess.Popen(command("ui", "--page", page), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **child_options(independent=True))
+            threading.Thread(target=proc.wait, daemon=True).start()
+            return
         # Separate process and no UI import retained by the service.
         proc = subprocess.Popen(desktop_argv([sys.executable, "-m", "murmur", "ui", "--page", page]),
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -175,7 +205,7 @@ class Service:
             self.worker = await asyncio.create_subprocess_exec(
                 *worker_argv, stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, limit=65536,
-                env=worker_env)
+                env=worker_env, **child_options())
             self.worker_mode = mode
             # Mute may arrive while subprocess creation yields. Never leave a stale worker.
             if self.muted or not self.config["privacy"]["onboarded"] or (mode == "wake_word" and self.config["activation"]["mode"] != "wake_word"):
@@ -301,7 +331,7 @@ class Service:
                 if os.environ.get("MURMUR_DRY_RUN") == "1":
                     self.message = "Dry run: " + intent.action
                 else:
-                    self.message = await asyncio.to_thread(self.dispatcher.execute, intent)
+                    self.message = await self.desktop_call(self.dispatcher.execute, intent)
             except (CommandError, RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
                 if intent and intent.action == "replay_save" and self.config["replay"]["sound"]:
                     from .feedback import play
@@ -314,16 +344,21 @@ class Service:
 
     async def handle(self, payload):
         op = payload.get("op")
+        if op == "shutdown" and is_windows():
+            self.stopping.set()
+            return {"ok": True, "pid": os.getpid()}
         if op == "status":
             return {"ok": True, "status": self.status()}
         if op == "config":
             return {"ok": True, "config": self.config}
         if op == "apps":
             # Pick up apps installed since the last scan (the UI asks on open/Reconnect).
-            if await asyncio.to_thread(self.apps.rescan) and self.worker and not self.muted \
+            if await self.desktop_call(self.apps.rescan) and self.worker and not self.muted \
                     and self.config["activation"]["mode"] == "wake_word":
                 self.background(self.start_worker("wake_word"), "voice restart")
             entries = self.apps.list()
+            if not entries and getattr(self.apps, "scan_error", None):
+                raise CommandError(self.apps.scan_error)
             if self.worker:
                 excluded = set(self.unsupported)
                 for app in entries:
@@ -336,8 +371,11 @@ class Service:
         if op == "recording_devices":
             return {"ok": True, "devices": [{"id": d["name"], "name": d["description"], "monitor": d["monitor"]} for d in await asyncio.to_thread(audio_sources)]}
         if op == "brightness_monitors":
-            from .brightness import inventory
-            return {"ok": True, "monitors": await asyncio.to_thread(inventory)}
+            if is_windows():
+                from .windows.brightness import inventory
+            else:
+                from .brightness import inventory
+            return {"ok": True, "monitors": await self.desktop_call(inventory)}
         if op == "monitors":
             return {"ok": True, "monitors": await asyncio.to_thread(self.recorder.sources)}
         if op == "mute":
@@ -364,7 +402,6 @@ class Service:
                     self.activation.pause()
         elif op == "save_config":
             c = configuration.validate(payload["config"])
-            Parser.from_config(c)
             if self.recorder.status()["state"] in ("recording", "stopping") and c["recording"] != self.config["recording"]:
                 raise CommandError("Stop recording before changing capture settings")
             if self.replay.status()["state"] in ("on", "stopping") and (
@@ -375,7 +412,7 @@ class Service:
             was_onboarded = self.config["privacy"]["onboarded"]
             self.config = await asyncio.to_thread(configuration.save, c)
             self.parser = Parser.from_config(c)
-            self.apps = await asyncio.to_thread(AppRegistry, c["aliases"])
+            self.apps = await self.desktop_call(AppRegistry, c["aliases"])
             self.dispatcher.apps = self.apps
             self.dispatcher.config = self.config
             self.recorder.config = self.replay.config = self.config
@@ -399,9 +436,13 @@ class Service:
             enabled = payload.get("enabled")
             if type(enabled) is not bool:
                 raise CommandError("Startup must be true or false")
-            r = await asyncio.to_thread(subprocess.run, ["systemctl", "--user", "enable" if enabled else "disable", "murmur.service"], capture_output=True, text=True, timeout=5)
-            if r.returncode:
-                raise CommandError("Install the optional user service first (see README). " + r.stderr.strip()[:300])
+            if is_windows():
+                from .windows.startup import set_startup
+                await asyncio.to_thread(set_startup, enabled)
+            else:
+                r = await asyncio.to_thread(subprocess.run, ["systemctl", "--user", "enable" if enabled else "disable", "murmur.service"], capture_output=True, text=True, timeout=5)
+                if r.returncode:
+                    raise CommandError("Install the optional user service first (see README). " + r.stderr.strip()[:300])
             self.config["startup"] = enabled
             await asyncio.to_thread(configuration.save, self.config)
         else:
@@ -411,6 +452,9 @@ class Service:
 
 
 def devices():
+    if is_windows():
+        from .windows.audio import devices as windows_devices
+        return windows_devices()
     result = subprocess.run(["pw-dump"], capture_output=True, text=True, timeout=3)
     if result.returncode:
         raise CommandError("Cannot reach PipeWire; check the graphical session")
@@ -423,31 +467,45 @@ def devices():
 async def serve():
     service = Service()
     service.loop = asyncio.get_running_loop()
-    path = Path(socket_path())
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    # Do not use a world-writable pre-existing IPC directory.
-    info = path.parent.stat()
-    if info.st_uid != os.getuid() or info.st_mode & 0o077:
-        raise RuntimeError("IPC directory must be owned by you with mode 0700")
-    lock = (path.parent / "service.lock").open("a")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError as exc:
-        raise RuntimeError("Murmur service is already running") from exc
+    token = None
+    if is_windows():
+        from .windows import transport
+        from .windows.system import ServiceLock, own_service_children, private_directory
+        path = transport.endpoint_path()
+        private_directory(path.parent)
+        lock = ServiceLock(path.with_name("service.lock"))
+        own_service_children()
+        token = transport.new_token()
+    else:
+        import fcntl
+        path = Path(socket_path())
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        info = path.parent.stat()
+        if info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise RuntimeError("IPC directory must be owned by you with mode 0700")
+        lock = (path.parent / "service.lock").open("a")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            lock.close()
+            raise RuntimeError("Murmur service is already running") from exc
     path.unlink(missing_ok=True)
     async def connection(reader, writer):
         queue = None
         try:
-            peer = writer.get_extra_info("socket")
-            _, uid, _ = struct.unpack("3i", peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
-            if uid != os.getuid():
-                return
+            if not is_windows():
+                peer = writer.get_extra_info("socket")
+                _, uid, _ = struct.unpack("3i", peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+                if uid != os.getuid():
+                    return
             line = await asyncio.wait_for(reader.readline(), 5)
             if len(line) > 65536:
                 raise ValueError("Request exceeds 64 KiB")
             payload = json.loads(line)
             if not isinstance(payload, dict):
                 raise ValueError("Request must be an object")
+            if is_windows() and not transport.authenticate(payload, token):
+                raise ValueError("Unauthorized Jarvis client")
             if payload.get("op") == "watch":
                 queue = asyncio.Queue(maxsize=8)
                 service.watchers.add(queue)
@@ -481,11 +539,21 @@ async def serve():
                 service.watchers.discard(queue)
             writer.close()
             await writer.wait_closed()
-    server = await asyncio.start_unix_server(connection, str(path), limit=65536)
-    path.chmod(0o600)
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        service.loop.add_signal_handler(sig, service.stopping.set)
+    if is_windows():
+        server = await asyncio.start_server(connection, "127.0.0.1", 0, limit=65536)
+        transport.publish(server.sockets[0].getsockname()[1], token)
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            signal.signal(sig, lambda *_: service.loop.call_soon_threadsafe(service.stopping.set))
+    else:
+        server = await asyncio.start_unix_server(connection, str(path), limit=65536)
+        path.chmod(0o600)
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            service.loop.add_signal_handler(sig, service.stopping.set)
     try:
+        if is_windows():
+            from .windows.tray import Tray
+            service.tray = Tray(service)
+            service.tray.start()
         try:
             await asyncio.to_thread(service.recorder.inspect_previous)
         except OSError as exc:
@@ -506,13 +574,22 @@ async def serve():
         async with server:
             await service.stopping.wait()
     finally:
-        await service.set_mute(True)
+        server.close()
+        await server.wait_closed()
         try:
-            await asyncio.to_thread(service.replay.close)
-            await asyncio.to_thread(service.recorder.close)
+            await service.set_mute(True)
+            results = await asyncio.gather(asyncio.to_thread(service.replay.close),
+                                           asyncio.to_thread(service.recorder.close), return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception):
+                    print(f"murmur: capture cleanup: {result}", file=sys.stderr)
         finally:
             path.unlink(missing_ok=True)
             lock.close()
+            if service.tray:
+                service.tray.close()
+            if service.desktop_executor:
+                service.desktop_executor.shutdown(wait=False, cancel_futures=True)
 
 
 def main():

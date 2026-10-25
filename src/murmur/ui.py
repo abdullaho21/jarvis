@@ -29,6 +29,7 @@ else:
 
 from . import client
 from .commands import normalize
+from .encoding import CODECS, CODEC_LABELS, QUALITY_PRESETS, storage_estimate
 
 
 def _merge(base: dict, patch: dict) -> dict:
@@ -468,11 +469,11 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         self.monitor = Gtk.DropDown.new_from_strings(["No displays discovered"])
         self.monitor.set_hexpand(True)
         self._row(capture, "Display", self.monitor)
-        self.color_mode = Gtk.DropDown.new_from_strings(["Automatic", "Preserve HDR (HEVC 10-bit)", "SDR"])
+        self.color_mode = Gtk.DropDown.new_from_strings(["Automatic", "Preserve HDR (10-bit)", "SDR"])
         self._row(capture, "Color / HDR", self.color_mode,
                   "Applies to recording and replay. Automatic detects the display HDR preset when capture starts. "
                   "Choose Preserve HDR for fullscreen HDR passthrough or older Hyprland versions. "
-                  "Restart capture after changing display HDR. HDR uses GPU Screen Recorder; the SDR encoder below applies to SDR only.")
+                  "Restart capture after changing display HDR. HDR uses AV1 when selected, otherwise HEVC, through GPU Screen Recorder.")
         capture.append(_label("HDR clips need an HDR-aware player and display, or a player that tone maps to SDR. "
                               "The built-in preview may not display HDR correctly; use Open in your player. "
                               "SDR capture requires display HDR to be off; Jarvis does not tone map direct monitor capture.", "caption"))
@@ -494,17 +495,44 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         capture.append(self.capture_configured)
         capture.append(_label("Verify a short recording in your desktop session before enabling this. Initial capture permissions may require system UI. This setting cannot bypass a portal or compositor permission prompt.", "caption"))
         body.append(capture)
-        card, quality = self._advanced("Sounds & encoding", "Software encoding uses CPU. Hardware encoding is optional and depends on your installed backend and driver.")
+        quality = self._card("Picture & storage", "Applies to recordings and replay. Hardware formats require GPU Screen Recorder and a GPU that supports the selected format. No CPU fallback.")
+        self.codec = Gtk.DropDown.new_from_strings(CODEC_LABELS)
+        self._row(quality, "Video format", self.codec,
+                  "AV1 saves the most space at similar quality on supported GPUs. HEVC is a useful middle ground; H.264 is easiest to share and edit. HDR uses AV1 or HEVC 10-bit.")
+        self.fps = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 1, 60, 1)
+        self.fps.set_digits(0)
+        self.fps.set_size_request(220, -1)
+        self.fps.set_hexpand(True)
+        for value in (15, 30, 60):
+            self.fps.add_mark(value, Gtk.PositionType.BOTTOM, str(value))
+        self._row(quality, "Frames per second", self.fps,
+                  "30 is a good starting point for smaller, lighter recordings. 60 makes fast motion smoother and uses more encoding work.")
+        self.rate_control = Gtk.DropDown.new_from_strings(["Consistent quality · variable size", "Storage budget · Mbps"])
+        self._row(quality, "Size control", self.rate_control)
+        self.quality_preset = Gtk.DropDown.new_from_strings(["Compact", "Balanced", "Sharp"])
+        self._row(quality, "GPU quality", self.quality_preset)
+        self.bitrate = self._spin(1, 100, 1)
+        self._row(quality, "Video bitrate (Mbps)", self.bitrate,
+                  "Start at 8 Mbps for 1080p; increase for higher resolutions or busy scenes. At a fixed bitrate, more frames share the same storage budget.")
+        self.storage_hint = _label("", "caption")
+        quality.append(self.storage_hint)
+        presets = _box(8, True)
+        for title, fps, bitrate in (("Small", 30, 4), ("Balanced", 30, 8), ("Smooth", 60, 16)):
+            presets.append(_button(title, lambda fps=fps, bitrate=bitrate: self._recording_preset(fps, bitrate)))
+        quality.append(presets)
+        quality.append(_label("Presets select GPU AV1 and a bitrate budget. Check that your GPU and player support AV1 before recording. Existing settings change only when saved.", "caption"))
         self.sound_feedback = Gtk.Switch()
-        self._row(quality, "Recording sounds", self.sound_feedback, "Optional short local tones on start, saved file and error. Requires pw-play; no spoken feedback.")
-        self.fps = self._spin(1, 60, 1)
-        self._row(quality, "Frames per second", self.fps)
-        self.codec = Gtk.DropDown.new_from_strings(["libx264", "h264_vaapi"])
-        self._row(quality, "Encoder", self.codec)
+        self._row(quality, "Recording sounds", self.sound_feedback, "Short local tones on start, save and error.")
+        body.append(quality)
+        card, legacy = self._advanced("Legacy encoder tuning", "Only used for H.264 CPU / legacy VA-API in quality mode; GPU presets use the quality choice above.")
         self.quality = self._spin(0, 51, 1)
-        self._row(quality, "Quality (CRF / backend value)", self.quality, "For x264, lower values improve quality and increase file size")
-        quality.append(_button("Use balanced software preset", self._recording_preset))
+        self._row(legacy, "H.264 quality value", self.quality, "Lower values improve quality and increase file size. Your existing value is preserved.")
         body.append(card)
+        self.codec.connect("notify::selected", lambda *_: self._encoding_changed())
+        self.rate_control.connect("notify::selected", lambda *_: self._encoding_changed())
+        self.bitrate.connect("value-changed", lambda *_: self._encoding_changed())
+        self.fps.connect("value-changed", lambda *_: self._encoding_changed())
+        self.replay_seconds.connect("value-changed", lambda *_: self._encoding_changed())
         body.append(_button("Save recorder settings", self._save_recording, "primary"))
         body.append(_label("Opening the recorder never starts capture. Stop & save requests a graceful finalization; wait for the saved-file confirmation.", "caption"))
 
@@ -930,9 +958,13 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         self.replay_sound.set_active(bool(replay.get("sound", True)))
         self._populate_record_devices()
         self.fps.set_value(float(recorder.get("fps", 30)))
-        codecs = ["libx264", "h264_vaapi"]
+        codecs = CODECS
         self.codec.set_selected(codecs.index(recorder.get("codec")) if recorder.get("codec") in codecs else 0)
         self.quality.set_value(float(recorder.get("quality", 23)))
+        self.rate_control.set_selected(1 if recorder.get("rate_control") == "bitrate" else 0)
+        self.bitrate.set_value(float(recorder.get("bitrate_mbps", 8)))
+        self.quality_preset.set_selected(QUALITY_PRESETS.index(recorder.get("quality_preset", "very_high")))
+        self._encoding_changed()
         self.startup.set_active(bool(self.config.get("startup", False)))
         onboarded = bool(self.config.get("privacy", {}).get("onboarded", False))
         self.consent.set_active(onboarded)
@@ -1194,18 +1226,37 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
             "configured": self.capture_configured.get_active(), "sound_feedback": self.sound_feedback.get_active(),
             "combined_audio_source": self.combined_audio.get_active(),
             "color_mode": ["auto", "hdr", "sdr"][self.color_mode.get_selected()],
-            "audio_device": source, "fps": self.fps.get_value_as_int(),
-            "codec": ["libx264", "h264_vaapi"][self.codec.get_selected()], "quality": self.quality.get_value_as_int()},
+            "audio_device": source, "fps": int(round(self.fps.get_value())),
+            "rate_control": "bitrate" if self.rate_control.get_selected() == 1 else "quality",
+            "bitrate_mbps": self.bitrate.get_value_as_int(),
+            "quality_preset": QUALITY_PRESETS[self.quality_preset.get_selected()],
+            "codec": CODECS[self.codec.get_selected()], "quality": self.quality.get_value_as_int()},
             "replay": {"seconds": self.replay_seconds.get_value_as_int(), "autostart": self.replay_autostart.get_active(),
                        "game_audio": self.replay_game.get_active(), "microphone": self.replay_mic.get_active(),
                        "sound": self.replay_sound.get_active()}},
             "Recorder settings saved. Start recording explicitly, or say “Start recording”.")
 
-    def _recording_preset(self) -> None:
-        self.fps.set_value(30)
-        self.codec.set_selected(0)
-        self.quality.set_value(23)
-        self._notice("Balanced preset selected: 30 fps, x264 CRF 23. Save to apply. Measure CPU load on your hardware.")
+    def _encoding_changed(self) -> None:
+        budget = self.rate_control.get_selected() == 1
+        gpu = self.codec.get_selected() >= 2
+        self.bitrate.set_sensitive(budget)
+        self.quality_preset.set_sensitive(not budget and gpu)
+        self.quality.set_sensitive(not budget and not gpu)
+        if budget:
+            cfg = {"bitrate_mbps": self.bitrate.get_value_as_int()}
+            self.storage_hint.set_text(f"About {storage_estimate(cfg):.0f} MB/min video; "
+                f"{storage_estimate(cfg, 3600) / 1000:.2f} GB/hour. "
+                f"Replay video buffer: ~{storage_estimate(cfg, self.replay_seconds.get_value_as_int()):.0f} MB. "
+                "Audio, container and encoder overhead are extra; these are estimates, not a hard size or RAM limit.")
+        else:
+            self.storage_hint.set_text("File size and replay RAM vary with scene complexity. Choose Storage budget for a predictable video bitrate.")
+
+    def _recording_preset(self, fps=30, bitrate=8) -> None:
+        self.fps.set_value(fps)
+        self.codec.set_selected(CODECS.index("av1"))
+        self.rate_control.set_selected(1)
+        self.bitrate.set_value(bitrate)
+        self._notice(f"Selected AV1 GPU, {fps} fps, {bitrate} Mbps. Save to apply; hardware support is required.")
 
     def _save_startup(self) -> None:
         self._action("set_startup", enabled=self.startup.get_active())

@@ -1,0 +1,77 @@
+{
+  "date": "2026-10-24",
+  "workload": "FFmpeg testsrc2, 1280x720, 3 seconds, no audio, x264 ultrafast, two threads",
+  "scope": "Synthetic software encoding only. No screen, microphone, Discord or GPU capture. Not gaming-performance or hardware-encoder quality evidence.",
+  "budget_4mbps_video_mb_per_min": 30.0,
+  "rows": [
+    {
+      "fps": 15,
+      "target_mbps": 4,
+      "size_bytes": 1803199,
+      "wall_seconds": 0.209,
+      "encoder_cpu_seconds": 0.2418,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 1280,
+            "height": 720,
+            "avg_frame_rate": "15/1"
+          }
+        ],
+        "format": {
+          "duration": "3.000000",
+          "size": "1803199"
+        }
+      }
+    },
+    {
+      "fps": 30,
+      "target_mbps": 4,
+      "size_bytes": 1711605,
+      "wall_seconds": 0.4715,
+      "encoder_cpu_seconds": 0.418,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 1280,
+            "height": 720,
+            "avg_frame_rate": "30/1"
+          }
+        ],
+        "format": {
+          "duration": "3.000000",
+          "size": "1711605"
+        }
+      }
+    },
+    {
+      "fps": 60,
+      "target_mbps": 4,
+      "size_bytes": 1592755,
+      "wall_seconds": 1.1088,
+      "encoder_cpu_seconds": 0.8169,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 1280,
+            "height": 720,
+            "avg_frame_rate": "60/1"
+          }
+        ],
+        "format": {
+          "duration": "3.000000",
+          "size": "1592755"
+        }
+      }
+    }
+  ]
+}

@@ -2,6 +2,7 @@
 //! The supported export's f32 embedding values are exactly binary16 values.
 //! Check every value before compacting; keep the original tensor otherwise.
 use rayon::prelude::*;
+use std::io::Read;
 use tract_onnx::prelude::*;
 use tract_onnx::tract_core::internal::{ensure, format_err};
 
@@ -14,6 +15,73 @@ pub struct Embedding {
     columns: usize,
 }
 impl Embedding {
+    /// Convert the serialized table in bounded chunks, without a second full
+    /// f32 copy. A nonexact value switches to the original f32 representation;
+    /// every already-converted value round-trips exactly, including signed zero.
+    pub fn read_raw(reader: &mut impl Read, shape: &[i64], bytes: u64) -> TractResult<Self> {
+        ensure!(
+            shape.len() == 2 && shape[0] > 0 && shape[1] > 0 && shape[1] % 8 == 0,
+            "Unexpected embedding shape"
+        );
+        let rows = usize::try_from(shape[0])?;
+        let columns = usize::try_from(shape[1])?;
+        let count = rows
+            .checked_mul(columns)
+            .ok_or_else(|| format_err!("Embedding too large"))?;
+        ensure!(
+            count <= 51864 * 768 && u64::try_from(count)?.checked_mul(4) == Some(bytes),
+            "Unexpected embedding byte length"
+        );
+        let mut compact = Vec::with_capacity(count);
+        let mut buffer = [0_u8; 16384];
+        let mut consumed = 0;
+        while consumed < count {
+            let n = (count - consumed).min(buffer.len() / 4);
+            reader.read_exact(&mut buffer[..n * 4])?;
+            for (i, raw) in buffer[..n * 4].as_chunks::<4>().0.iter().enumerate() {
+                let value = f32::from_le_bytes(*raw);
+                let half = f16::from_f32(value);
+                if value.is_finite() && half.to_f32().to_bits() == value.to_bits() {
+                    compact.push(half);
+                } else {
+                    let mut tensor = Tensor::zero::<f32>(&[rows, columns])?;
+                    let mut plain = tensor.try_as_plain_ram_mut()?;
+                    let output = plain.as_slice_mut::<f32>()?;
+                    for (out, value) in output.iter_mut().zip(&compact) {
+                        *out = value.to_f32();
+                    }
+                    drop(compact);
+                    for (out, raw) in output[consumed + i..consumed + n]
+                        .iter_mut()
+                        .zip(buffer[i * 4..n * 4].as_chunks::<4>().0)
+                    {
+                        *out = f32::from_le_bytes(*raw);
+                    }
+                    consumed += n;
+                    while consumed < count {
+                        let n = (count - consumed).min(buffer.len() / 4);
+                        reader.read_exact(&mut buffer[..n * 4])?;
+                        for (out, raw) in output[consumed..consumed + n]
+                            .iter_mut()
+                            .zip(buffer[..n * 4].as_chunks::<4>().0)
+                        {
+                            *out = f32::from_le_bytes(*raw);
+                        }
+                        consumed += n;
+                    }
+                    return Ok(Self {
+                        storage: Storage::Original(tensor),
+                        columns,
+                    });
+                }
+            }
+            consumed += n;
+        }
+        Ok(Self {
+            storage: Storage::Compact(compact),
+            columns,
+        })
+    }
     pub fn new(tensor: Tensor) -> TractResult<Self> {
         ensure!(
             tensor.rank() == 2 && tensor.shape()[1] != 0 && tensor.shape()[1].is_multiple_of(8),
@@ -49,6 +117,13 @@ impl Embedding {
             Storage::Compact(_) => "lossless-f16",
             Storage::Original(_) => "f32",
         }
+    }
+    pub fn shape(&self) -> [usize; 2] {
+        let count = match &self.storage {
+            Storage::Compact(values) => values.len(),
+            Storage::Original(tensor) => tensor.len(),
+        };
+        [count / self.columns, self.columns]
     }
     pub fn bytes(&self) -> usize {
         match &self.storage {
@@ -199,6 +274,41 @@ mod tests {
             assert_eq!(embedding.bytes(), 32);
         }
         Ok(())
+    }
+    #[test]
+    fn streamed_fallback_preserves_bits_across_chunk_boundaries() -> TractResult<()> {
+        for index in [0, 7, 4095, 4096, 8191] {
+            for value in [
+                0.1_f32,
+                f32::from_bits(1),
+                f32::INFINITY,
+                f32::from_bits(0x7fc0_1234),
+            ] {
+                let mut values = vec![-0.0_f32; 8192];
+                values[index] = value;
+                let bytes: Vec<_> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+                let embedding =
+                    Embedding::read_raw(&mut bytes.as_slice(), &[1024, 8], bytes.len() as u64)?;
+                assert_eq!(embedding.storage(), "f32");
+                let Storage::Original(tensor) = embedding.storage else {
+                    unreachable!()
+                };
+                assert_eq!(tensor.as_bytes(), native_bytes(&values));
+            }
+        }
+        assert!(Embedding::read_raw(&mut [0_u8; 31].as_slice(), &[1, 8], 32).is_err());
+        for (shape, length) in [
+            (vec![1, 7], 28),
+            (vec![-1, 8], 32),
+            (vec![1, 8], 31),
+            (vec![i64::MAX, 8], 32),
+        ] {
+            assert!(Embedding::read_raw(&mut [].as_slice(), &shape, length).is_err());
+        }
+        Ok(())
+    }
+    fn native_bytes(values: &[f32]) -> Vec<u8> {
+        values.iter().flat_map(|v| v.to_ne_bytes()).collect()
     }
     #[test]
     fn portable_and_dispatched_projection_match_f32_bits() -> TractResult<()> {

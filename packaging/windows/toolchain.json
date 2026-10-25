@@ -1,0 +1,44 @@
+[
+  {
+    "name": "python-3.13.17-amd64.exe",
+    "url": "https://www.python.org/ftp/python/3.13.17/python-3.13.17-amd64.exe",
+    "sha256": "5da012101ba2e17113a9a1cd901e9ce1441086f2b7ecb5de06ec94163899a190",
+    "size": 29941280
+  },
+  {
+    "name": "ffmpeg-8.1.tar.xz",
+    "url": "https://ffmpeg.org/releases/ffmpeg-8.1.tar.xz",
+    "sha256": "b072aed6871998cce9b36e7774033105ca29e33632be5b6347f3206898e0756a",
+    "size": 11702216
+  },
+  {
+    "name": "llvm-mingw-20261020-ucrt-ubuntu-22.04-x86_64.tar.xz",
+    "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20261020/llvm-mingw-20261020-ucrt-ubuntu-22.04-x86_64.tar.xz",
+    "sha256": "55064b60b991a1e1e8090b8c2f84e82b22cfe5903d12c159d65064cf5e8ae335",
+    "size": 84017268
+  },
+  {
+    "name": "vpl-v2.17.0.tar.gz",
+    "url": "https://api.github.com/repos/Intel/libvpl/tarball/v2.17.0",
+    "sha256": "62ff06c0a5c4a32d00b8ededfefca03d2c282595a4938a035b98b647ac4a6b1b",
+    "size": 12975348
+  },
+  {
+    "name": "amf-v1.5.3.tar.gz",
+    "url": "https://api.github.com/repos/GPUOpen-LibrariesAndSDKs/AMF/tarball/v1.5.3",
+    "sha256": "87fb80315830398a7cd4276c691cae51a90e8438094c6074acf00d591f04c655",
+    "size": 624603681
+  },
+  {
+    "name": "x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.gz",
+    "url": "https://code.videolan.org/videolan/x264/-/archive/b35605ace3ddf7c1a5d67a2eb553f034aef41d55/x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.gz",
+    "sha256": "cd71a7515b0e9a012e1ac9b1f8415bebcaf6fc97d4db32286642ac4c0fbe24f9",
+    "size": 1040327
+  },
+  {
+    "name": "nvcodec-13.0.19.0.tar.gz",
+    "url": "https://api.github.com/repos/FFmpeg/nv-codec-headers/tarball/refs/tags/n13.0.19.0",
+    "sha256": "96083edd783af35bfcfb6d1f7224009d09a686d1a80b5bec53b0fd4261514bb1",
+    "size": 83394
+  }
+]

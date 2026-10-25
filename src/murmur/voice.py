@@ -1,6 +1,8 @@
 """Disposable microphone worker. Only this process imports the speech model."""
 from __future__ import annotations
 
+from .host import is_windows
+
 from collections import deque
 import ctypes
 import json
@@ -22,6 +24,10 @@ def emit(**message):
 
 
 def _parent_death(sig=signal.SIGTERM, expected_parent=None):
+    if is_windows():
+        from .windows.system import watch_parent
+        watch_parent(expected_parent or os.getppid())
+        return
     # Linux: microphone children must die if their owning service/worker dies.
     before = os.getppid()
     if before == 1 or (expected_parent is not None and before != expected_parent):
@@ -105,7 +111,7 @@ def make_engine(config: dict, grammar: dict | list[str]):
 def run(config: dict, mode: str, grammar: dict | list[str]):
     capture = None
     engine = None
-    selector = selectors.DefaultSelector()
+    selector = None if is_windows() else selectors.DefaultSelector()
     errors = deque(maxlen=4)
     def shutdown(*_):
         raise SystemExit(0)
@@ -121,18 +127,24 @@ def run(config: dict, mode: str, grammar: dict | list[str]):
             frame_bytes = engine.frame_bytes
         else:
             frame_bytes = 960
-        argv = ["pw-record", "--raw", "--rate", "16000", "--channels", "1", "--format", "s16", "--latency", "30ms"]
-        if config["audio"]["device"]:
-            argv += ["--target", config["audio"]["device"]]
-        argv += ["-"]
-        # preexec_fn is only safe because no thread exists yet in this process;
-        # keep this spawn before read_errors() starts.
-        capture = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                   stdin=subprocess.DEVNULL, preexec_fn=functools.partial(_capture_child, os.getpid()))
-        def read_errors():
-            while chunk := capture.stderr.read(512):
-                errors.append(chunk)
-        threading.Thread(target=read_errors, daemon=True).start()
+        if is_windows():
+            from .windows.audio import VoiceIO, CommandTranscriber
+            capture = selector = VoiceIO(config)
+            if getattr(engine, "_transcriber", None) is not None:
+                engine._transcriber = CommandTranscriber(engine._transcriber, capture)
+        else:
+            argv = ["pw-record", "--raw", "--rate", "16000", "--channels", "1", "--format", "s16", "--latency", "30ms"]
+            if config["audio"]["device"]:
+                argv += ["--target", config["audio"]["device"]]
+            argv += ["-"]
+            # preexec_fn is only safe because no thread exists yet in this process;
+            # keep this spawn before read_errors() starts.
+            capture = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                       stdin=subprocess.DEVNULL, preexec_fn=functools.partial(_capture_child, os.getpid()))
+            def read_errors():
+                while chunk := capture.stderr.read(512):
+                    errors.append(chunk)
+            threading.Thread(target=read_errors, daemon=True).start()
         audio = selector.register(capture.stdout, selectors.EVENT_READ)
         # A wake worker keeps stdin open. Only after "ready" does the service
         # write "listen" or "cancel" lines (so main()'s buffered payload read
@@ -156,7 +168,7 @@ def run(config: dict, mode: str, grammar: dict | list[str]):
         while True:
             now = time.monotonic()
             if now - last_frame_at >= 3:
-                raise RuntimeError("No microphone frames for three seconds. Check the input device and PipeWire, then Resume.")
+                raise RuntimeError("No microphone frames for three seconds. Check the input device and audio permissions, then Resume.")
             if deadline is not None and now >= deadline:
                 # Background speech can keep a command from "ending"; decide on
                 # what was said so far instead of throwing it away.
@@ -191,7 +203,7 @@ def run(config: dict, mode: str, grammar: dict | list[str]):
             # Handle control first regardless of selector order; a continuously
             # readable microphone must not starve listen/cancel acknowledgements.
             if control is not None and any(key is control for key, _mask in events):
-                data = os.read(0, 4096)
+                data = capture.read(0, 4096) if is_windows() else os.read(0, 4096)
                 if not data:   # the service closed the channel; keep waiting for the wake word
                     selector.unregister(0)
                     control = None
@@ -204,11 +216,11 @@ def run(config: dict, mode: str, grammar: dict | list[str]):
                     ready(listening=listening, deadline=deadline)
                 if not any(key is audio for key, _mask in events):
                     continue
-            data = os.read(audio.fd, frame_bytes - len(pending))
+            data = capture.read(audio.fd, frame_bytes - len(pending)) if is_windows() else os.read(audio.fd, frame_bytes - len(pending))
             if not data:
                 capture.wait(timeout=2)
                 detail = b"".join(errors).decode(errors="replace").strip()[-800:]
-                raise RuntimeError("Microphone stream ended. Check PipeWire and the selected input. " + detail)
+                raise RuntimeError("Microphone stream ended. Check audio permissions and the selected input. " + detail)
             pending.extend(data)
             if len(pending) != frame_bytes:
                 continue
@@ -277,7 +289,8 @@ def run(config: dict, mode: str, grammar: dict | list[str]):
     except Exception as exc:
         emit(event="error", message=str(exc))
     finally:
-        selector.close()
+        if selector is not None:
+            selector.close()
         if engine:
             engine.close()
         if capture:

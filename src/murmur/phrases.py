@@ -2,15 +2,30 @@
 from __future__ import annotations
 import re
 
+SMALL = ('zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+         'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
+         'seventeen', 'eighteen', 'nineteen')
+TENS = ('', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety')
+
 
 def number(n):
-    small = 'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen'.split()
     if n < 20:
-        return small[n]
+        return SMALL[n]
     if n == 100:
         return 'one hundred'
-    tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety']
-    return tens[n // 10] + (' ' + small[n % 10] if n % 10 else '')
+    return TENS[n // 10] + (' ' + SMALL[n % 10] if n % 10 else '')
+
+
+def percentage(text):
+    """Read only the canonical whole-number wording produced by number()."""
+    if text == 'one hundred':
+        return 100
+    if text in SMALL:
+        return SMALL.index(text)
+    tens, _, ones = text.partition(' ')
+    if tens in TENS[2:] and (not ones or ones in SMALL[1:10]):
+        return TENS.index(tens) * 10 + (SMALL.index(ones) if ones else 0)
+    return None
 
 
 def numeric(text):
@@ -77,8 +92,12 @@ class Rules:
         return rules
 
     def parse(self, text):
-        from .commands import Intent, normalize
-        p = normalize(text)
+        from .commands import normalize
+        return self.parse_normalized(normalize(text))
+
+    def parse_normalized(self, p):
+        """Parse normalized text without expanding every monitor/percentage pair."""
+        from .commands import Intent
         if p in self.launches:
             return Intent('open_app', self.launches[p])
         for shortcut, alias in self.launches.items():
@@ -88,18 +107,24 @@ class Rules:
         if not brightness_like(p):
             return None
         p = numeric(p)
-        for verb in ('brighten', 'dim', 'set'):
-            p = p.replace(verb + ' the ', verb + ' ', 1)
-        for name, identity in sorted(self.monitors.items()):
-            for action in ('brighten', 'dim'):
-                if p == f'{action} {name}' or (name == 'main' and p == action):
-                    return Intent('brightness_down' if action == 'dim' else 'brightness_up', {'monitor': identity})
-            for n in range(101):
-                forms = [f'set {name} brightness to {number(n)}', f'brighten {name} to {number(n)}', f'dim {name} to {number(n)}']
-                if name == 'main':
-                    forms.append(f'set brightness to {number(n)}')
-                if any(p == f or p == f + ' percent' for f in forms):
-                    return Intent('brightness_set', {'monitor': identity, 'percent': n})
+        verb, _, target = p.partition(' ')
+        target = target.removeprefix('the ')
+        if verb in ('brighten', 'dim'):
+            identity = self.monitors.get(target or 'main')
+            if identity is not None:
+                return Intent('brightness_down' if verb == 'dim' else 'brightness_up', {'monitor': identity})
+            name, separator, value = target.rpartition(' to ')
+        elif verb == 'set':
+            if target.startswith('brightness to '):
+                name, separator, value = 'main', 'brightness to ', target[len('brightness to '):]
+            else:
+                name, separator, value = target.rpartition(' brightness to ')
+        else:
+            return None
+        identity = self.monitors.get(name)
+        n = percentage(value.removesuffix(' percent')) if separator else None
+        if identity is not None and n is not None:
+            return Intent('brightness_set', {'monitor': identity, 'percent': n})
         return None
 
     def phrases(self):

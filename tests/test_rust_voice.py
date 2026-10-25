@@ -37,6 +37,56 @@ def event(process, timeout=10):
 
 
 class PreparationTests(unittest.TestCase):
+    def test_default_prefers_rust_when_binary_library_and_model_are_available(self):
+        with tempfile.TemporaryDirectory() as directory:
+            library = Path(directory)
+            (library / "libvosk.so").touch()
+            with patch.dict(os.environ), patch("murmur.native_worker.binary_path", return_value=Path("/built/jarvis-voice")), \
+                    patch("murmur.native_worker.package_dir", return_value=library), \
+                    patch("murmur.native_worker.valid_model", return_value=True), \
+                    patch("murmur.native_worker.accurate_model_ready", return_value=False):
+                os.environ.pop("MURMUR_VOICE_WORKER", None)
+                argv, payload, _ = prepare(copy.deepcopy(DEFAULTS), "once", {})
+            self.assertEqual(argv, ["/built/jarvis-voice"])
+            self.assertEqual(payload["native"]["vosk_library"], str(library / "libvosk.so"))
+
+    def test_default_source_only_install_uses_python_without_loading_dependencies(self):
+        with patch.dict(os.environ), patch("murmur.native_worker.binary_path", return_value=None), \
+                patch("murmur.native_worker.package_dir", side_effect=AssertionError):
+            os.environ.pop("MURMUR_VOICE_WORKER", None)
+            argv, payload, _ = prepare(copy.deepcopy(DEFAULTS), "once", {})
+        self.assertEqual(argv, [sys.executable, "-m", "murmur.voice"])
+        self.assertNotIn("native", payload)
+
+    def test_default_preserves_pocketsphinx_and_missing_dependency_fallbacks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            library = Path(directory)
+            for backend, package, model_ready, library_ready in (
+                    ("pocketsphinx", library, True, True), ("auto", None, True, True),
+                    ("auto", library, False, True), ("auto", library, True, False)):
+                with self.subTest(backend=backend, package=package, model=model_ready, library=library_ready):
+                    (library / "libvosk.so").unlink(missing_ok=True)
+                    if library_ready:
+                        (library / "libvosk.so").touch()
+                    config = copy.deepcopy(DEFAULTS)
+                    config["recognition"]["backend"] = backend
+                    with patch.dict(os.environ), patch("murmur.native_worker.binary_path", return_value=Path("/built/jarvis-voice")), \
+                            patch("murmur.native_worker.package_dir", return_value=package), \
+                            patch("murmur.native_worker.valid_model", return_value=model_ready):
+                        os.environ.pop("MURMUR_VOICE_WORKER", None)
+                        argv, payload, _ = prepare(config, "once", {})
+                    self.assertEqual(argv, [sys.executable, "-m", "murmur.voice"])
+                    self.assertNotIn("native", payload)
+
+    def test_default_meter_can_use_rust_without_recognition_dependencies(self):
+        with patch.dict(os.environ), patch("murmur.native_worker.binary_path", return_value=Path("/built/jarvis-voice")), \
+                patch("murmur.native_worker.package_dir", return_value=None), \
+                patch("murmur.native_worker.accurate_model_ready", return_value=False):
+            os.environ.pop("MURMUR_VOICE_WORKER", None)
+            argv, payload, _ = prepare(copy.deepcopy(DEFAULTS), "test", {})
+        self.assertEqual(argv, ["/built/jarvis-voice"])
+        self.assertEqual(payload["native"]["vosk_library"], "")
+
     def test_python_remains_available_without_rust_or_model_imports(self):
         with patch.dict(os.environ, MURMUR_VOICE_WORKER="python"), patch("murmur.native_worker.binary_path", side_effect=AssertionError):
             argv, payload, env = prepare(copy.deepcopy(DEFAULTS), "test", {})

@@ -8,6 +8,8 @@ and byte-token decoding. The existing int8 ONNX linear weights and float32
 embedding values are unchanged. The [memory optimization](rust-worker-memory.md)
 stores exactly representable embeddings compactly and expands them for float32
 computation. There is no retraining or change to the ONNX files.
+The [incremental loader and cache changes](rust-memory-loading.md) further
+reduce temporary memory while preserving the tested tensor bytes.
 
 The voice worker calls `jarvis_whisper::Recognizer` directly and also uses the
 existing [Rust GTCRN denoiser](rust-denoiser.md). Neither computation uses Python,
@@ -45,10 +47,14 @@ A targeted optimization precomputes constant int8 weight column sums.
 Without it, tract's constant-folding memory budget leaves large int8-to-int32
 expansions and reductions at runtime, retaining duplicate weights. A regression
 test verifies the optimization preserves exact integer results and removes the
-expanded-weight dependency. The decoder is imported before the encoder. A
-worker without an idle limit loads Whisper before Vosk, so their import scratch
-does not overlap unnecessarily; the default [on-demand](whisper-on-demand.md)
-worker loads it after a wake name instead.
+expanded-weight dependency. The incremental loader compiles the encoder first,
+then imports decoder blocks individually. Raw initializer payloads are read from
+validated ranges in the original ONNX file as needed. The embedding is converted
+directly into lossless compact storage without an expanded float32 copy.
+A worker without an idle limit still loads Whisper before Vosk; the default
+[on-demand](whisper-on-demand.md) worker loads it after a wake name instead. The encoder returns the existing per-layer
+cross-attention tensors directly, avoiding concatenation followed by splitting
+and copying. Diagnostic tensor files retain their original layout.
 
 Two additional Rust kernels accelerate the hottest operations without changing
 precision. Dynamic quantization uses runtime-dispatched AVX2 on supported
@@ -74,7 +80,8 @@ MURMUR_VOICE_WORKER=rust ./run-jarvis daemon
 ```
 
 Building does not change user settings or restart the running service. Python
-remains the default. See [worker selection](rust-voice.md#build-and-select) for
+remains available for compatibility. Linux prefers Rust when its native assets
+are available. See [worker selection](rust-voice.md#build-and-select) for
 the existing systemd setup. The optional noise-suppression setting selects
 Rust GTCRN when using this worker.
 
@@ -127,7 +134,7 @@ rounding boundaries, unaligned tails, NaNs, infinities and zero/subnormal ranges
 Scaling tests check shared-input ownership and exact output bytes.
 
 The optimized kernels are selected automatically when building the Rust worker;
-Python remains the application default. These are fixture results, not a broad
+Python remains available for comparison and compatibility. These are fixture results, not a broad
 speaker/accent/noise accuracy study.
 
 Reproduce an optimization comparison by saving the earlier executables before

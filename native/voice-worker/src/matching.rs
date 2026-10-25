@@ -1,8 +1,6 @@
 //! The existing command matching policy, with Python SequenceMatcher's
 //! no-junk longest-block rule. The daemon still validates and dispatches text.
 use std::collections::{HashMap, HashSet};
-use unicode_casefold::UnicodeCaseFold;
-use unicode_normalization::UnicodeNormalization;
 
 pub fn phrase(text: &str) -> String {
     text.trim()
@@ -14,23 +12,7 @@ pub fn phrase(text: &str) -> String {
 }
 
 pub fn wording(text: &str, prefixes: &[String], suffixes: &[String]) -> String {
-    let folded: String = text.nfkc().case_fold().collect();
-    let plain: String = folded
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '_' || c.is_whitespace() {
-                c
-            } else {
-                ' '
-            }
-        })
-        .collect();
-    let normalized = plain
-        .split_whitespace()
-        .map(|w| if w == "fullscreen" { "full screen" } else { w })
-        .collect::<Vec<_>>()
-        .join(" ");
-    strip_courtesy(&normalized, prefixes, suffixes)
+    strip_courtesy(&jarvis_phrases::normalize(text), prefixes, suffixes)
 }
 
 fn strip_courtesy(text: &str, prefixes: &[String], suffixes: &[String]) -> String {
@@ -274,19 +256,20 @@ fn matching_size(a: &[char], b: &[char]) -> usize {
     let mut total = 0;
     while let Some((alo, ahi, blo, bhi)) = todo.pop() {
         let (mut ai, mut bj, mut size) = (alo, blo, 0);
-        let mut prev = vec![0; bhi - blo + 1];
+        // Carry the preceding diagonal in a scalar; one row suffices for the
+        // longest-block recurrence and avoids an allocation per input character.
+        let mut row = vec![0; bhi - blo + 1];
         for (i, &ac) in a.iter().enumerate().take(ahi).skip(alo) {
-            let mut next = vec![0; prev.len()];
+            let mut diagonal = 0;
             for j in blo..bhi {
-                if ac == b[j] {
-                    let length = prev[j - blo] + 1;
-                    next[j - blo + 1] = length;
-                    if length > size {
-                        (ai, bj, size) = (i + 1 - length, j + 1 - length, length);
-                    }
+                let previous = row[j - blo + 1];
+                let length = if ac == b[j] { diagonal + 1 } else { 0 };
+                row[j - blo + 1] = length;
+                diagonal = previous;
+                if length > size {
+                    (ai, bj, size) = (i + 1 - length, j + 1 - length, length);
                 }
             }
-            prev = next;
         }
         total += size;
         if size > 0 {

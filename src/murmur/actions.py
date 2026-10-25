@@ -1,6 +1,10 @@
 """Intent executor, independent of recognition and UI."""
 from .commands import CommandError
-from .hyprland import volume
+from .host import is_windows
+if is_windows():
+    from .windows.desktop import volume
+else:
+    from .hyprland import volume
 
 
 class Dispatcher:
@@ -34,7 +38,10 @@ class Dispatcher:
             self.desktop.dispatch(action, intent.target)
             return "Desktop updated"
         if action.startswith("brightness_"):
-            from .brightness import execute
+            if is_windows():
+                from .windows.brightness import execute
+            else:
+                from .brightness import execute
             return execute(intent, self.config)
         if action.startswith("volume_"):
             volume(action)

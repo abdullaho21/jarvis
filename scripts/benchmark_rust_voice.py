@@ -74,6 +74,7 @@ def rust_run(fixture: bytes, repeats: int, denoise: bool, threads: int, binary: 
         return {"worker": "rust", "denoise": denoise, "threads": threads, "whisper": ready["whisper"],
                 "binary_sha256": binary_sha256,
                 "load_seconds": ready["load_seconds"], "loaded_rss_mib": ready["memory"]["rss_mib"],
+                "load_peak_rss_mib": ready["memory"]["peak_rss_mib"],
                 "final_rss_mib": cases[-1]["rss_mib"], "peak_rss_mib": peak,
                 "median_decode_ms": statistics.median(c["seconds"] for c in cases) * 1000,
                 "total_cpu_seconds": sum(c["decode_cpu_seconds"] + c["settle_cpu_seconds"] for c in cases), "cases": cases}
@@ -126,7 +127,7 @@ while True: feed(silence)
         measured = psutil.Process(process.pid)
         start = time.monotonic()
         commands, command_rss = [], []
-        loaded, peak = None, 0
+        loaded, load_peak, peak = None, None, 0
         try:
             process.stdin.write((json.dumps(payload) + "\n").encode())
             with selectors.DefaultSelector() as selector:
@@ -145,6 +146,8 @@ while True: feed(silence)
                     if message["event"] == "ready":
                         loaded = measured.memory_info().rss / 1048576
                         load_seconds = time.monotonic() - start
+                        status = Path(f"/proc/{process.pid}/status").read_text()
+                        load_peak = next(float(l.split()[1]) / 1024 for l in status.splitlines() if l.startswith("VmHWM:"))
                     if message["event"] == "command":
                         commands.append(message["text"])
                         command_rss.append(measured.memory_info().rss / 1048576)
@@ -155,7 +158,8 @@ while True: feed(silence)
             peak = next(float(l.split()[1]) / 1024 for l in status.splitlines() if l.startswith("VmHWM:"))
             return {"worker": worker, "denoise": denoise, "commands": commands, "load_seconds": load_seconds,
                     "binary_sha256": hashlib.sha256(Path(argv[0]).read_bytes()).hexdigest() if worker == "rust" else None,
-                    "loaded_rss_mib": loaded, "final_rss_mib": final, "peak_rss_mib": peak,
+                    "loaded_rss_mib": loaded, "load_peak_rss_mib": load_peak,
+                    "final_rss_mib": final, "peak_rss_mib": peak,
                     "command_rss_mib": command_rss, "cpu_seconds": cpu.user + cpu.system,
                     "elapsed_seconds": time.monotonic() - start}
         finally:

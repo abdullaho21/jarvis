@@ -30,6 +30,8 @@ def release_unused_memory() -> None:
     This doesn't unload weights or touch live allocations. Run only between
     commands, after the per-utterance stream has been destroyed.
     """
+    if os.name == "nt":
+        return
     try:
         trim = ctypes.CDLL(None).malloc_trim
     except (AttributeError, OSError):
@@ -83,7 +85,7 @@ class Transcriber:
         if self._denoiser is not None:
             samples = list(self._denoiser(samples, SAMPLE_RATE).samples)
         stream = self._recognizer.create_stream()
-        stream.accept_waveform(SAMPLE_RATE, PADDING + samples + PADDING)
+        stream.accept_waveform(SAMPLE_RATE, [*PADDING, *samples, *PADDING])
         self._recognizer.decode_stream(stream)
         text = stream.result.text.strip()
         del stream, samples

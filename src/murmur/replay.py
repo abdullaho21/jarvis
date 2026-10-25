@@ -17,6 +17,7 @@ import subprocess
 import threading
 
 from .client import socket_path
+from .encoding import expected_codec
 from .recorder import (RecorderError, _parent_death_prefix, _spawn, capture_color,
                        gpu_video_args, sources, verify_video)
 
@@ -27,7 +28,7 @@ def command(cfg: dict, replay: dict, folder: Path, ipc: Path, *, color: str = "s
     """gpu-screen-recorder replay mode for the configured monitor. Game sound (the
     default output) and the default microphone are mixed into one audio track."""
     argv = [BACKEND, "-w", cfg["monitor"], "-f", str(cfg.get("fps", 30)), "-r", str(replay.get("seconds", 120)),
-            "-replay-storage", "ram", "-c", "mp4", "-o", str(folder), "-ipc", str(ipc), "-v", "no"] + gpu_video_args(color)
+            "-replay-storage", "ram", "-c", "mp4", "-o", str(folder), "-ipc", str(ipc), "-v", "no"] + gpu_video_args(color, cfg)
     audio = [name for name, wanted in (("default_output", replay.get("game_audio", True)),
                                        ("default_input", replay.get("microphone", True))) if wanted]
     return argv + (["-a", "|".join(audio)] if audio else [])
@@ -43,6 +44,7 @@ class Replay:
         self._lock = threading.Lock()
         self._process = None
         self._color = "sdr"
+        self._codec = None
         self._done = threading.Event()
         self._done.set()
         self._status = {"state": "off", "message": "Instant replay is off.", "file": None}
@@ -88,13 +90,14 @@ class Replay:
                 process = _spawn(_parent_death_prefix() + argv, stdin=subprocess.DEVNULL,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True,
                                  umask=0o077)
-            except (RecorderError, OSError) as exc:
+            except (RecorderError, OSError, ValueError) as exc:
                 self._set("error", str(exc))
                 error = RecorderError(str(exc))
             else:
                 error = None
                 self._process = process
                 self._color = color
+                self._codec = expected_codec(cfg, color)
                 self._done.clear()
                 self._set("on", f"Instant replay on · {color.upper()} · keeping the last {replay.get('seconds', 120)} seconds in memory.")
                 threading.Thread(target=self._watch, args=(process,), name="murmur-replay", daemon=True).start()
@@ -108,6 +111,7 @@ class Replay:
         tail = deque(maxlen=4)
         while chunk := process.stderr.read(4096):
             tail.append(chunk)
+        process.stderr.close()
         code = process.wait()
         with self._lock:
             requested = self._status["state"] == "stopping"
@@ -133,6 +137,8 @@ class Replay:
             raise RecorderError("Instant replay is still starting; try again in a moment.") from exc
         except (OSError, ValueError) as exc:
             raise RecorderError(f"Instant replay did not answer: {exc}") from exc
+        if not isinstance(reply, dict):
+            raise RecorderError("Instant replay returned an invalid response")
         if reply.get("result") != "ok" or not isinstance(reply.get("data"), str):
             raise RecorderError(f"Replay not saved: {reply.get('data') or 'no reply'}")
         return reply["data"]
@@ -142,12 +148,12 @@ class Replay:
             if self._process is None:
                 raise RecorderError("Instant replay is off. Say “start replay” first.")
             self._set("on", "Saving the replay…", self._status.get("file"))
-            color = self._color
+            color, codec = self._color, self._codec
         self._notify()
         path = None
         try:
             path = Path(self._request("save-replay"))
-            verify_video(path, color=color)
+            verify_video(path, color=color, codec=codec)
         except RecorderError as exc:
             detail = f"{exc} File retained at {path}." if path is not None else str(exc)
             with self._lock:
@@ -167,10 +173,16 @@ class Replay:
             if process is None:
                 return dict(self._status)
             self._set("stopping", "Stopping instant replay…")
-            process.send_signal(signal.SIGINT)   # replay mode discards the buffer
+            try:
+                process.send_signal(signal.SIGINT)   # replay mode discards the buffer
+            except ProcessLookupError:
+                pass  # the watcher still owns exit handling and cleanup
         self._notify()
         if not self._done.wait(timeout):
-            process.kill()
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
             self._done.wait(2)
         return self.status()
 

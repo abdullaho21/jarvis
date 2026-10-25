@@ -46,7 +46,11 @@ fn trim() {
 fn run() -> TractResult<()> {
     let mut args: Vec<_> = std::env::args().skip(1).collect();
     if args == ["--version"] {
-        println!("jarvis-whisper 0.1.0; Rust Whisper small.en / tract 0.23.9");
+        println!(concat!(
+            "jarvis-whisper ",
+            env!("CARGO_PKG_VERSION"),
+            "; Rust Whisper small.en / tract 0.23.9"
+        ));
         return Ok(());
     }
     let threads = if let Some(i) = args.iter().position(|a| a == "--threads") {

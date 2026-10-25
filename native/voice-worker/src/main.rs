@@ -197,7 +197,11 @@ fn run() -> Result<()> {
         );
     }
     if args.first().is_some_and(|a| a == "--version") {
-        println!("jarvis-voice 0.1.0; Rust Whisper/GTCRN tract 0.23.9; native Vosk");
+        println!(concat!(
+            "jarvis-voice ",
+            env!("CARGO_PKG_VERSION"),
+            "; Rust Whisper/GTCRN tract 0.23.9; native Vosk"
+        ));
         return Ok(());
     }
     worker::bind_parent()?;

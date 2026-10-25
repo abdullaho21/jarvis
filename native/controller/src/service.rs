@@ -46,7 +46,7 @@ struct Worker {
 pub struct Service {
     pub config: Value,
     parser: Parser,
-    apps: Registry,
+    apps: Arc<Registry>,
     activation: Activation,
     muted: bool,
     message: String,
@@ -87,7 +87,7 @@ impl Service {
         let replay_updates = replay.status.subscribe();
         let mut result = Self {
             parser: Parser::from_config(&config)?,
-            apps: Registry::scan(&config["aliases"], None),
+            apps: Arc::new(Registry::scan(&config["aliases"], None)),
             activation: Activation::new(&config),
             config,
             muted,
@@ -553,7 +553,7 @@ impl Service {
             "apps" => {
                 let apps = Registry::scan(&self.config["aliases"], None);
                 let changed = apps.index.keys().ne(self.apps.index.keys());
-                self.apps = apps;
+                self.apps = Arc::new(apps);
                 if changed
                     && self.worker.is_some()
                     && !self.muted
@@ -636,7 +636,7 @@ impl Service {
                 let was_onboarded = self.config["privacy"]["onboarded"] == true;
                 self.config = config::save(&c)?;
                 self.parser = Parser::from_config(&c)?;
-                self.apps = Registry::scan(&c["aliases"], None);
+                self.apps = Arc::new(Registry::scan(&c["aliases"], None));
                 self.activation.timeout = c["activation"]["command_timeout"].as_f64().unwrap();
                 self.activation.confidence = c["activation"]["confidence"].as_f64().unwrap();
                 self.set_mute(if c["privacy"]["onboarded"] != true {
@@ -768,17 +768,14 @@ async fn dispatch(
                 8,
             )
             .await?;
+            let display = policy::spoken_numbers(&policy::normalize(&app.name).unwrap_or_default());
             let others: Vec<_> = apps
                 .apps
                 .values()
                 .filter(|a| {
                     a.id != app.id
-                        && policy::normalize(&a.name).is_ok_and(|n| {
-                            policy::spoken_numbers(&n)
-                                == policy::spoken_numbers(
-                                    &policy::normalize(&app.name).unwrap_or_default(),
-                                )
-                        })
+                        && policy::normalize(&a.name)
+                            .is_ok_and(|n| policy::spoken_numbers(&n) == display)
                 })
                 .map(|a| a.id.as_str())
                 .collect();

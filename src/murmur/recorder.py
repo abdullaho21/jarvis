@@ -1,4 +1,4 @@
-"""Supervised headless capture: wf-recorder for SDR, GPU Screen Recorder for HDR."""
+"""Supervised capture: GPU formats/HDR and compatible legacy wf-recorder paths."""
 
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ import signal
 import subprocess
 import threading
 import uuid
+
+from .encoding import expected_codec, gpu_video_args, validate_encoding
 
 
 class RecorderError(RuntimeError):
@@ -67,9 +69,12 @@ def orphaned_recorders() -> list[int]:
 
 
 def _query(argv: list[str], timeout: float = 3) -> str:
+    from .host import child_options, tool
+    if argv[0] == "ffprobe":
+        argv = [tool("ffprobe") or argv[0], *argv[1:]]
     try:
         result = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
-                                check=False, stdin=subprocess.DEVNULL)
+                                check=False, stdin=subprocess.DEVNULL, **child_options())
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RecorderError(f"Could not query {argv[0]}: {exc}") from exc
     if result.returncode:
@@ -123,24 +128,20 @@ def capture_color(cfg: dict, monitor: dict) -> str:
     return "hdr" if mode == "hdr" or (mode == "auto" and hdr) else "sdr"
 
 
-def gpu_video_args(color: str) -> list[str]:
-    # Let the backend capture/convert the actual pixels and write HDR metadata.
-    # Never merely label an SDR encoder's output as HDR or fall back to 8-bit CPU.
-    return ["-k", "hevc_hdr" if color == "hdr" else "h264", "-cr", "limited",
-            "-fallback-cpu-encoding", "no"]
 
-
-def verify_video(path: Path, *, color: str = "sdr"):
+def verify_video(path: Path, *, color: str = "sdr", codec: str | None = None):
     if not path.exists() or path.stat().st_size == 0:
         raise RecorderError("The recorder produced no video data.")
     try:
         data = json.loads(_query(["ffprobe", "-v", "error", "-show_entries",
-                                 "stream=codec_type,width,height,pix_fmt,color_space,color_transfer,color_primaries,color_range",
+                                 "stream=codec_type,codec_name,width,height,pix_fmt,color_space,color_transfer,color_primaries,color_range",
                                  "-of", "json", str(path)], timeout=10))
         videos = [s for s in data.get("streams", []) if s.get("codec_type") == "video"
                   and s.get("width", 0) > 0 and s.get("height", 0) > 0]
         if not videos:
             raise RecorderError("The output contains no valid video stream.")
+        if codec and not any(s.get("codec_name") == codec for s in videos):
+            raise RecorderError(f"Video format verification failed: expected {codec}. Check GPU and driver support for the selected format.")
         if color == "hdr" and not any(
                 s.get("pix_fmt") in ("yuv420p10le", "p010le", "p010be", "yuv420p10be")
                 and s.get("color_transfer") == "smpte2084"
@@ -171,6 +172,7 @@ class Recorder:
         self._stop_requested = False
         self._forced = False
         self._color = "sdr"
+        self._codec = None
         self._status = {"state": "idle", "file": None, "message": "Recorder ready."}
 
     def _settings(self) -> dict:
@@ -228,36 +230,43 @@ class Recorder:
         if display is None:
             raise RecorderError(f"Capture source {monitor!r} is unavailable. Choose a connected monitor.")
         color = capture_color(cfg, display)
-        backend_name = "gpu-screen-recorder" if color == "hdr" else "wf-recorder"
+        gpu = color == "hdr" or cfg.get("codec") in ("h264", "hevc", "av1")
+        backend_name = "gpu-screen-recorder" if gpu else "wf-recorder"
         backend = shutil.which(backend_name)
         if not backend:
             raise RecorderError(f"{backend_name} is missing. Install it using your distribution's package manager.")
         if not shutil.which("ffprobe"):
             raise RecorderError("ffprobe is missing. Install FFmpeg to validate saved recordings.")
+        try:
+            validate_encoding(cfg)
+        except ValueError as exc:
+            raise RecorderError(str(exc)) from exc
         fps, quality = cfg.get("fps", 30), cfg.get("quality", 23)
-        if type(fps) is not int or not 1 <= fps <= 60:
-            raise RecorderError("Recording frame rate must be an integer from 1 to 60.")
-        if type(quality) is not int or not 0 <= quality <= 51:
-            raise RecorderError("Recording quality must be an integer from 0 to 51.")
         codec = cfg.get("codec", "libx264")
-        if codec not in ("libx264", "h264_vaapi"):
-            raise RecorderError("Supported recording codecs are libx264 and h264_vaapi.")
-        if color == "hdr":
-            argv = [backend, "-w", monitor, "-f", str(fps), "-c", "mkv", "-v", "no"] + gpu_video_args(color)
+        if gpu:
+            argv = [backend, "-w", monitor, "-f", str(fps), "-c", "mkv", "-v", "no"] + gpu_video_args(color, cfg)
         else:
             argv = [backend, "--output", monitor, "--muxer", "matroska", "--codec", codec,
                     "--framerate", str(fps)]
-        if color == "sdr" and codec == "libx264":
-            argv += ["--pixel-format", "yuv420p", "--codec-param", "preset=ultrafast", "--codec-param", f"crf={quality}",
+        if not gpu and codec == "libx264":
+            argv += ["--pixel-format", "yuv420p", "--codec-param", "preset=ultrafast",
                      "--codec-param", "threads=2"]
-        elif color == "sdr":
+        elif not gpu:
             device = str(cfg.get("vaapi_device") or "/dev/dri/renderD128")
             if not device.startswith("/dev/dri/renderD") or not os.access(device, os.R_OK | os.W_OK):
                 raise RecorderError("The selected VA-API render device is unavailable or not accessible.")
             # Leave pixel format/filter selection to wf-recorder's VA-API path.
             # It supplies scale_vaapi=nv12 and hwupload when necessary. Forcing
             # software yuv420p here is incompatible with h264_vaapi's VAAPI frames.
-            argv += ["--device", device, "--codec-param", f"qp={quality}"]
+            argv += ["--device", device]
+        if not gpu:
+            params = ([f"b={cfg.get('bitrate_mbps', 8) * 1000000}",
+                       f"maxrate={cfg.get('bitrate_mbps', 8) * 1000000}",
+                       f"bufsize={cfg.get('bitrate_mbps', 8) * 2000000}"]
+                      if cfg.get("rate_control", "quality") == "bitrate"
+                      else [f"{'crf' if codec == 'libx264' else 'qp'}={quality}"])
+            for param in params:
+                argv += ["--codec-param", param]
         system, mic = bool(cfg.get("system_audio", False)), bool(cfg.get("microphone", False))
         if system or mic:
             device = str(cfg.get("audio_device", "")).strip()
@@ -274,11 +283,11 @@ class Recorder:
                     raise RecorderError("System audio requires a sink monitor source; choose its .monitor source.")
                 if mic and is_monitor:
                     raise RecorderError("Microphone recording requires an input source, not a sink monitor.")
-            if color == "hdr":
+            if gpu:
                 argv += ["-a", device, "-ac", "aac"]
             else:
                 argv += ["--audio-backend", "pulse", f"--audio={device}", "--audio-codec", "aac"]
-        return {**cfg, "active_color": color}, monitor, argv
+        return {**cfg, "active_color": color, "gpu": gpu}, monitor, argv
 
     def start(self) -> dict:
         with self._lock:
@@ -301,7 +310,7 @@ class Recorder:
                 os.close(fd)
                 try:
                     # Always name the source and muxer. Never invoke a shell or interactive selector.
-                    output_args = ["-o", str(staging)] if cfg["active_color"] == "hdr" else ["--overwrite", "--file", str(staging)]
+                    output_args = ["-o", str(staging)] if cfg["gpu"] else ["--overwrite", "--file", str(staging)]
                     process = _spawn(_parent_death_prefix() + argv + output_args,
                                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                                stderr=subprocess.PIPE, start_new_session=True)
@@ -314,6 +323,7 @@ class Recorder:
                 raise RecorderError(str(exc)) from exc
             self._process = process
             self._color = cfg["active_color"]
+            self._codec = expected_codec(cfg, self._color)
             self._stop_requested = self._forced = False
             self._done.clear()
             self._set("recording", f"Recorder running · {self._color.upper()}. Stop to finalize and verify the file.", staging)
@@ -336,7 +346,7 @@ class Recorder:
             if not requested or forced or code != 0:
                 detail = b"".join(tail).decode("utf-8", errors="replace").strip()[-1600:]
                 raise RecorderError(f"Recorder exited with status {code}. {detail}".strip())
-            verify_video(staging, color=self._color)
+            verify_video(staging, color=self._color, codec=self._codec)
             with staging.open("rb") as handle:
                 os.fsync(handle.fileno())
             # Same-directory hard link publishes a complete name atomically and never overwrites.

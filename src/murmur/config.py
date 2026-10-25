@@ -27,7 +27,8 @@ DEFAULTS = {
     "brightness": {"monitors": {}, "default": "", "step": 10},
     "recording": {"output_dir": "~/Videos/Murmur", "monitor": "", "system_audio": False,
                   "microphone": False, "audio_device": "", "fps": 30,
-                  "codec": "libx264", "quality": 23, "configured": False, "color_mode": "auto",
+                  "codec": "libx264", "quality": 23, "rate_control": "quality",
+                  "bitrate_mbps": 8, "quality_preset": "very_high", "encoder": "auto", "configured": False, "color_mode": "auto",
                   "combined_audio_source": False, "sound_feedback": False,
                   "vaapi_device": "/dev/dri/renderD128"},
     # Instant replay keeps the last `seconds` in RAM (gpu-screen-recorder); off until started.
@@ -66,16 +67,22 @@ def without_unknown(data: dict) -> dict:
 
 
 def config_path() -> Path:
-    return Path(os.environ.get("MURMUR_CONFIG", str(Path(os.environ.get(
-        "XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "murmur/config.json")))
+    from .host import settings_dir
+    return Path(os.environ.get("MURMUR_CONFIG", str(settings_dir() / "config.json")))
 
 
 def merged(base: dict, update: dict) -> dict:
-    result = copy.deepcopy(base)
-    for key, value in update.items():
-        if isinstance(value, dict) and isinstance(result.get(key), dict):
-            result[key] = merged(result[key], value)
+    """Merge settings, copying each retained default value only once."""
+    result = {}
+    for key, value in base.items():
+        if key not in update:
+            result[key] = copy.deepcopy(value)
+        elif isinstance(value, dict) and isinstance(update[key], dict):
+            result[key] = merged(value, update[key])
         else:
+            result[key] = update[key]
+    for key, value in update.items():
+        if key not in base:
             result[key] = value
     return result
 
@@ -146,12 +153,10 @@ def validate(data: dict) -> dict:
     r = c["recording"]
     if r["color_mode"] not in ("auto", "hdr", "sdr"):
         raise ValueError("Capture color mode must be auto, hdr or sdr")
-    if type(r["fps"]) is not int or not 1 <= r["fps"] <= 60:
-        raise ValueError("Recording fps must be 1–60")
-    if type(r["quality"]) is not int or not 0 <= r["quality"] <= 51:
-        raise ValueError("Recording quality must be CRF 0–51")
-    if r["codec"] not in ("libx264", "h264_vaapi"):
-        raise ValueError("Choose libx264 or h264_vaapi")
+    from .encoding import validate_encoding
+    validate_encoding(r)
+    if r["encoder"] not in ("auto", "nvenc", "amf", "qsv", "cpu"):
+        raise ValueError("Choose automatic, NVIDIA, AMD, Intel or CPU encoding")
     vaapi = r["vaapi_device"]
     if not isinstance(vaapi, str) or not vaapi.startswith("/dev/dri/renderD") or len(vaapi) > 64:
         raise ValueError("VA-API device must be a /dev/dri/renderD* path")
@@ -162,7 +167,8 @@ def validate(data: dict) -> dict:
         raise ValueError("Replay length must be 10–600 seconds")
     if not all(isinstance(c["replay"][key], bool) for key in ("autostart", "game_audio", "microphone", "sound")):
         raise ValueError("Replay switches must be true or false")
-    if r["system_audio"] and r["microphone"] and not (r["combined_audio_source"] and r["audio_device"].strip()):
+    from .host import is_windows
+    if not is_windows() and r["system_audio"] and r["microphone"] and not (r["combined_audio_source"] and r["audio_device"].strip()):
         raise ValueError("wf-recorder accepts one audio source. Set up a combined PipeWire source first.")
     if len(json.dumps(c, allow_nan=False).encode()) > 60000:
         raise ValueError("Configuration is too large; keep serialized settings below 60 KiB")
@@ -172,7 +178,11 @@ def validate(data: dict) -> dict:
 def load(path: Path | None = None) -> dict:
     path = path or config_path()
     if not path.exists():
-        return copy.deepcopy(DEFAULTS)
+        defaults = copy.deepcopy(DEFAULTS)
+        from .host import is_windows
+        if is_windows():
+            defaults["recording"].update(codec="h264", rate_control="bitrate", output_dir="~/Videos/Jarvis")
+        return defaults
     if path.stat().st_size > 65536:
         raise ValueError("Configuration exceeds 64 KiB")
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -197,11 +207,8 @@ def save(data: dict, path: Path | None = None) -> dict:
             f.flush()
             os.fsync(f.fileno())
         os.replace(temp, path)
-        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory)  # make the rename itself durable
-        finally:
-            os.close(directory)
+        from .host import sync_directory
+        sync_directory(path.parent)
     finally:
         if os.path.exists(temp):
             os.unlink(temp)
