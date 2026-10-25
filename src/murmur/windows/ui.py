@@ -13,7 +13,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from .. import config
-from ..client import request, watch
+from ..client import TIMEOUTS, request, watch
 from ..commands import REFERENCE
 from ..encoding import storage_estimate
 
@@ -193,11 +193,13 @@ class Window:
 
     def call(self, op, callback=None, **payload):
         def run():
+            # Longer per-operation limits (display inventory, commands,
+            # recording start) apply; others keep at least 15 seconds.
             reply = request(
                 op,
                 timeout=60
                 if op in ("record_stop", "replay_save", "save_config")
-                else 15,
+                else max(15, TIMEOUTS.get(op, 0)),
                 **payload,
             )
             if not reply.get("ok"):

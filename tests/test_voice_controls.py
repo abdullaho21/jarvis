@@ -144,6 +144,24 @@ class BrightnessBackendTests(unittest.TestCase):
         self.assertFalse(displays[0]['stable'])
 
 
+class BrightnessWindowTests(unittest.TestCase):
+    def test_apply_uses_the_spoken_form_of_names_with_hyphens_or_decimals(self):
+        from unittest.mock import MagicMock
+        from murmur.ui import JarvisWindow
+        c = config.validate({'brightness': {'monitors': {'edid:LG:27:1': {'name': 'LG-27', 'aliases': []},
+                                                          'edid:DL:24:2': {'name': 'Dell 24.5', 'aliases': []}},
+                                            'default': 'edid:LG:27:1', 'step': 10}})
+        parser = Parser.from_config(c)
+        for identity in c['brightness']['monitors']:
+            with self.subTest(identity=identity):
+                window = MagicMock(config=c)
+                JarvisWindow._apply_brightness(window, identity, 50)
+                with patch('murmur.ui.client.request', return_value={'ok': True}) as request:
+                    window._work.call_args.args[0]()
+                intent = parser.parse(request.call_args.kwargs['phrase'])
+                self.assertEqual(intent.target, {'monitor': identity, 'percent': 50})
+
+
 @unittest.skipUnless(BINARY.is_file(), 'build the Rust controller')
 class RustVoiceControlsTests(unittest.TestCase):
     def test_parser_and_grammar_match_python_for_configured_controls(self):

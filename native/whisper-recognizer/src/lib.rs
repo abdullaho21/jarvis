@@ -339,7 +339,7 @@ impl Recognizer {
             input.clear();
             input.push(token);
         }
-        let text = String::from_utf8(bytes)?.trim().to_owned();
+        let text = token_text(&bytes);
         if let Some(dir) = trace {
             std::fs::write(
                 dir.join("trace.json"),
@@ -350,6 +350,14 @@ impl Recognizer {
         }
         Ok(text)
     }
+}
+/// Byte-level BPE pieces can stop inside a multi-byte character (at the token
+/// limit, or on noise). Drop incomplete sequences instead of failing the command.
+fn token_text(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes)
+        .replace('\u{FFFD}', "")
+        .trim()
+        .to_owned()
 }
 fn run(
     plan: &Arc<TypedRunnableModel>,
@@ -390,4 +398,17 @@ fn write_tensors<'a>(path: &Path, tensors: impl Iterator<Item = &'a Tensor>) -> 
     }
     out.flush()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn token_text_drops_incomplete_utf8_instead_of_failing() {
+        assert_eq!(token_text(b" open firefox "), "open firefox");
+        assert_eq!(token_text(" café ♪".as_bytes()), "café ♪");
+        // "♪" is E2 99 AA; a token limit can stop after its first two bytes.
+        assert_eq!(token_text(b" open steam \xE2\x99"), "open steam");
+        assert_eq!(token_text(b"\xFF go \xC3"), "go");
+    }
 }

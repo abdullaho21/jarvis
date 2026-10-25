@@ -183,8 +183,8 @@ actions were executed.
 
 Before kernel optimization there was a memory/latency tradeoff: lower retained
 and startup memory, with slower transcription. The optimized comparison above
-supersedes those latency figures. The current Rust worker is an
-explicit option; these results do not justify switching the default.
+supersedes those latency figures. Linux now prefers the Rust worker when its
+assets are present; see [worker selection](rust-voice.md#build-and-select).
 
 The intermediate-tensor diagnostic separately compares clean and repeated
 long audio with ONNX Runtime 1.31.0, using identical mel inputs and then the

@@ -122,7 +122,8 @@ change brightness. Unsupported/disconnected displays show an error. Names use
 the EDID manufacturer, model and serial so bus reordering preserves the target;
 monitors without a unique serial are tied to their current connection, with a
 notice in the app. Duplicate identities are refused. Up to eight monitor names
-and aliases can be configured. Windows support is deferred.
+and aliases can be configured. On Windows, brightness uses laptop WMI controls
+or DDC/CI on external monitors; name each monitor in the Displays tab.
 
 An alias selects the application rather than adding an executable. Closest-match
 recognition requires a clear lead over different commands. If both native and

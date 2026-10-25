@@ -49,6 +49,8 @@ def main():
     ]
     spec = ACCURATE_MODELS[DEFAULT_ACCURATE_MODEL]
     required += [Path(spec["archive"]) / p for p in spec["files"].values()]
+    # The release bundles the optional denoising model as well.
+    required.append(Path("gtcrn_simple.onnx"))
     for path in required:
         if not (args.models / path).is_file():
             raise ValueError(f"Missing model file: {path}")

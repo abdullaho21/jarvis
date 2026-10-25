@@ -422,7 +422,8 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         if not saved:
             self._notice("Give this monitor a name and save monitor names first.", True)
             return
-        phrase = f"set {saved['name']} brightness to {percent} percent"
+        # Raw names such as "LG-27" or "Dell 24.5" read as negative or decimal percentages.
+        phrase = f"set {normalize(saved['name'])} brightness to {percent} percent"
         self._work(lambda: client.request("execute", phrase=phrase), lambda result: self._notice(str(result.get("message", result.get("error", "Brightness updated"))), not result.get("ok", False)))
 
     def _recording_page(self) -> None:

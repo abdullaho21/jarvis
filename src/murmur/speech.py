@@ -84,11 +84,17 @@ class SpeechEngine:
         if missing_wake:
             raise ValueError("Wake phrase contains unsupported dictionary words: " + ", ".join(missing_wake))
         if wake_aliases:
+            import os
             import tempfile
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8") as keywords:
-                keywords.write("\n".join(self._wake_forms) + "\n")
-                keywords.flush()
-                self._decoder.add_kws("wake", keywords.name)
+            # Closed before PocketSphinx opens it by name: Windows refuses a
+            # second open of a still-open delete-on-close temporary file.
+            fd, keywords = tempfile.mkstemp(suffix=".kws", text=True)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as file:
+                    file.write("\n".join(self._wake_forms) + "\n")
+                self._decoder.add_kws("wake", keywords)
+            finally:
+                os.unlink(keywords)
         else:
             self._decoder.add_keyphrase("wake", self.wake_phrase)
         self._mode: Literal["wake", "command"] | None = None

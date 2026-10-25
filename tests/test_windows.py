@@ -19,6 +19,28 @@ from murmur.windows.audio import PCMStream, VoiceIO, select_device
 from murmur.windows.apps import WindowsApp
 from murmur.windows.capture import ReplayBuffer
 
+try:
+    import tkinter  # noqa: F401  (the Windows settings window needs Tk)
+    TK = True
+except ImportError:
+    TK = False
+
+
+@unittest.skipUnless(TK, "Tk is not installed")
+class WindowRequestTests(unittest.TestCase):
+    def test_requests_keep_the_client_per_operation_timeouts(self):
+        from murmur.windows.ui import Window
+        expected = {"brightness_monitors": 150, "execute": 45, "record_start": 20, "status": 15,
+                    "record_stop": 60, "save_config": 60}
+        for op, timeout in expected.items():
+            with self.subTest(op=op):
+                runs = []
+                window = types.SimpleNamespace(submit=lambda run, callback: runs.append(run), received=None)
+                Window.call(window, op)
+                with patch("murmur.windows.ui.request", return_value={"ok": True}) as request:
+                    runs[0]()
+                self.assertEqual(request.call_args.kwargs["timeout"], timeout)
+
 
 class EncoderTests(unittest.TestCase):
     def setUp(self):
