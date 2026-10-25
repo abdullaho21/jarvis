@@ -401,8 +401,9 @@ impl Engine {
             whisper.prepare();
         }
     }
-    /// Collects a background Whisper load and releases Whisper once it has
-    /// gone unused while waiting for the wake phrase.
+    /// Collects a background Whisper load, releases Whisper once it has gone
+    /// unused while waiting for the wake phrase, and keeps trimming the heap
+    /// while it stays released.
     pub fn maintain(&mut self) -> Result<()> {
         let waiting = self.mode == Some("wake") && self.pending.is_none();
         if let Some(whisper) = &mut self.whisper {

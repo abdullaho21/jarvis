@@ -25,7 +25,9 @@ GTCRN, waiting RSS fell from 465.2 to 156.2 MiB.
 - Whisper is released after `whisper_idle_seconds` without a transcription or
   wake. Both the Python and Rust controllers send 60 seconds. Release happens
   only while waiting for the wake phrase, never during a command session, and
-  is followed by `malloc_trim`.
+  is followed by `malloc_trim`. While Whisper stays released and the worker
+  waits, `malloc_trim` repeats every 10 seconds (see
+  [Periodic trim](#periodic-trim-while-released--2026-10-26)).
 - A Whisper load error still stops the worker with an error event. It is
   reported at the first wake instead of at startup.
 - A payload without `whisper_idle_seconds` (from an older controller) loads
@@ -138,6 +140,61 @@ The process peak (VmHWM) was 556.5 MiB. RSS after release was 20 MiB above the
 previous waiting value after this second live cycle. Longer live use has not
 been measured.
 
+## Periodic trim while released — 2026-10-26
+
+Longer live use showed the released worker far above the benchmarks. After
+2 h 25 min it held 522 MiB with Whisper released (one thread, so no Whisper
+pool), against about 190 MiB in the benchmarks; its peak was 822.7 MiB. After
+Whisper's next load and release it fell to 371 MiB, and 3 h 36 min after
+start it held 381 MiB.
+
+Two mechanisms explain most of it:
+
+- **Freed pages refilled between trims.** The worker trimmed only on release
+  and after a transcription. Vosk keeps decoding the microphone, and its
+  allocations reuse the pages the release freed, so RSS climbs until the next
+  trim. The live drop from 522 to 371 MiB at the next release is that part.
+  The worker now also trims every 10 seconds while Whisper is released and it
+  is waiting for the wake phrase (`OnDemand::maintain`). Timed with a test
+  shim, trims took 0.12 ms median and 0.61 ms at most.
+- **Pages pinned by live Vosk allocations.** About 170 MiB above the baseline
+  survived a trim. Vosk allocations made while Whisper was loaded share pages
+  with Whisper's freed memory in the single arena, and a trim cannot return a
+  page with any live chunk. Periodic trims do not address this.
+
+Separately, Vosk's `Result()` and `Reset()` keep a recognizer's feature
+pipeline until 20,000 decoded frames (about 10 minutes of speech); only
+`FinalResult()` frees it. With Whisper already released, 15 minutes of
+continuous speech-like audio raised RSS by 34 MiB, which then stayed flat.
+
+### Benchmark
+
+Each worker heard the public fixture once as wake plus command, then the
+fixture time-reversed without pause, so speech-like audio that is never a wake
+phrase. Whisper was released after 150 seconds, while that audio continued.
+
+| Released worker under continuous speech | 5 s after | 60 s | 120 s | 150 s |
+| --- | ---: | ---: | ---: | ---: |
+| Trim on release only, A/B run | 202.9 | 204.7 | 206.8 | 208.4 |
+| Periodic trim, A/B run | 202.0 | 201.1 | 204.0 | 206.2 |
+| Trim on release only, earlier run (15 s samples) | 201 | 205 | 221 | 241 |
+
+The climb is not deterministic. In one earlier run of the release-only worker,
+RSS rose 39 MiB in the last minute. It did not recur in the back-to-back A/B
+run, and none of the three runs with periodic trims (two of the worker, one of
+a test-only `LD_PRELOAD` shim on the old worker) climbed more than 7 MiB. Loaded
+RSS (486 MiB) and the command were unchanged. In 25 cold load-and-release cycles
+with silent gaps, released RSS grew about 0.5 MiB per cycle in both versions.
+[A/B results](benchmarks/released-rss-trim-2026-10-26.json).
+
+### What this does not show
+
+- The live effect needs hours of real use to judge. The worker was swapped in
+  live with 165 MiB waiting, and a longer live sample is pending.
+- The ~170 MiB pinned part remains. Giving Whisper's Rust allocations their own
+  allocator, or running Whisper in a child process, would keep its memory out
+  of Vosk's arena. Neither has been tried.
+
 ## Reproduce
 
 Save the existing worker before building, then run the sequential comparison:
@@ -153,3 +210,11 @@ cp src/murmur/bin/jarvis-voice /tmp/jarvis-voice-before
 Omit `--denoise` for the run without GTCRN. The script uses the installed models
 and the deliberately supplied fixture. It never opens a microphone or
 dispatches an action.
+
+The released-RSS comparison takes about 11 minutes and uses GTCRN:
+
+```sh
+.venv/bin/python scripts/benchmark_released_rss.py \
+  --fixture build/refactor-review/goforward.raw \
+  --before /tmp/jarvis-voice-before
+```

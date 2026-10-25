@@ -7,6 +7,11 @@ use std::time::{Duration, Instant};
 
 pub type Loader<T> = Arc<dyn Fn() -> std::result::Result<T, String> + Send + Sync>;
 
+/// How often to trim again while released. Allocations made after a release
+/// (Vosk decoding speech) re-dirty pages the release freed, and glibc returns
+/// them only on a trim, which costs well under a millisecond.
+const TRIM_EVERY: Duration = Duration::from_secs(10);
+
 enum Slot<T> {
     Empty,
     Loading(JoinHandle<std::result::Result<T, String>>),
@@ -17,6 +22,8 @@ pub struct OnDemand<T> {
     load: Loader<T>,
     idle: Option<Duration>,
     slot: Slot<T>,
+    trim_every: Duration,
+    trimmed: Instant,
 }
 
 impl<T: Send + 'static> OnDemand<T> {
@@ -26,6 +33,8 @@ impl<T: Send + 'static> OnDemand<T> {
             load,
             idle,
             slot: Slot::Empty,
+            trim_every: TRIM_EVERY,
+            trimmed: Instant::now(),
         };
         if idle.is_none() {
             value.get()?;
@@ -64,7 +73,9 @@ impl<T: Send + 'static> OnDemand<T> {
         Err("Whisper did not load".into())
     }
     /// Collects a finished background load (reporting its error) and releases
-    /// a value unused for the idle limit unless `busy`. True when released.
+    /// a value unused for the idle limit unless `busy`. True when the caller
+    /// should trim the heap: on release, then every `TRIM_EVERY` while an
+    /// on-demand value stays unloaded and the caller is not busy.
     pub fn maintain(&mut self, busy: bool) -> Result<bool> {
         self.collect(false)?;
         let expired = match (&self.slot, self.idle) {
@@ -74,7 +85,15 @@ impl<T: Send + 'static> OnDemand<T> {
         if expired {
             self.slot = Slot::Empty;
         }
-        Ok(expired)
+        // A resident value is never empty, so only on-demand values trim.
+        let trim = expired
+            || (!busy
+                && matches!(self.slot, Slot::Empty)
+                && self.trimmed.elapsed() >= self.trim_every);
+        if trim {
+            self.trimmed = Instant::now();
+        }
+        Ok(trim)
     }
     /// Joins a background load: always when `wait`, otherwise once it finished.
     fn collect(&mut self, wait: bool) -> Result<()> {
@@ -166,6 +185,33 @@ mod tests {
         sleep(Duration::from_millis(600));
         assert!(value.maintain(false).unwrap());
         assert_eq!(loads.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn released_value_requests_periodic_trims_only_while_idle_and_unloaded() {
+        let (load, _) = counting(Duration::ZERO);
+        let mut value = OnDemand::new(load, Some(Duration::ZERO)).unwrap();
+        value.trim_every = Duration::from_millis(200);
+        value.get().unwrap();
+        assert!(value.maintain(false).unwrap(), "release trims");
+        assert!(
+            !value.maintain(false).unwrap(),
+            "not again within the period"
+        );
+        sleep(Duration::from_millis(250));
+        assert!(!value.maintain(true).unwrap(), "never while busy");
+        assert!(value.maintain(false).unwrap(), "periodic trim once idle");
+        assert!(!value.maintain(false).unwrap());
+        // Loaded or loading values hold their pages, so nothing to trim.
+        value.idle = Some(Duration::from_secs(60));
+        value.get().unwrap();
+        sleep(Duration::from_millis(250));
+        assert!(!value.maintain(false).unwrap());
+        let (slow, _) = counting(Duration::from_millis(300));
+        let mut loading = OnDemand::new(slow, Some(Duration::from_secs(60))).unwrap();
+        loading.trim_every = Duration::ZERO;
+        loading.prepare();
+        assert!(!loading.maintain(false).unwrap());
     }
 
     #[test]
