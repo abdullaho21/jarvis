@@ -374,6 +374,8 @@ class ControllerServiceTests(unittest.TestCase):
         h = self.start(onboarded=True)
         h.wait(lambda: h.status()["engine"] is not None)
         pid = h.events("voice")[0]["pid"]
+        # An already-exited worker would pass without exercising PR_SET_PDEATHSIG.
+        self.assertFalse(exited(pid), "Voice worker exited before the controller's death")
         h.process.kill(); h.process.wait(timeout=5)
         end = time.monotonic() + 3
         while time.monotonic() < end:
@@ -389,6 +391,7 @@ class ControllerServiceTests(unittest.TestCase):
         self.assertTrue(h.rpc("replay_start")["ok"])
         h.wait(lambda: bool(h.events("wf-recorder")) and bool(h.events("gpu-screen-recorder")))
         pids = [h.events(name)[0]["pid"] for name in ("wf-recorder", "gpu-screen-recorder")]
+        self.assertFalse(any(exited(pid) for pid in pids), "A recorder exited before the controller's death")
         h.process.kill(); h.process.wait(timeout=5)
         for pid in pids:
             end = time.monotonic() + 3
