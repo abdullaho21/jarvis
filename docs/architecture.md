@@ -3,7 +3,9 @@
 Jarvis has three independent process lifetimes. The stdlib asyncio service owns
 configuration, private Unix IPC, app discovery, parsing and action dispatch. It
 does not import GTK or any speech inference library. The voice worker owns
-Vosk, the resident Whisper small.en transcriber and a `pw-record` child. GTK settings is a separate
+Vosk, the Whisper small.en transcriber and a `pw-record` child. The Rust worker
+loads Whisper [on demand](whisper-on-demand.md) and releases it after a minute
+without a command. GTK settings is a separate
 process; closing it releases the UI while voice and recorder remain available.
 The recorder is a separate established `wf-recorder` process only while needed.
 
@@ -40,8 +42,11 @@ flowchart LR
 ## Activation
 
 The default is `wake_word`, with consent initially false. Before consent, no
-microphone/model worker runs. After consent and while unmuted, Vosk and Whisper
-remain resident; Vosk gates the stronger model's work. Say “hey Jarvis” or
+microphone/model worker runs. After consent and while unmuted, Vosk stays
+resident and gates the stronger model's work. The Rust worker starts loading
+Whisper on a background thread when Vosk's in-progress hypothesis contains a
+wake name, and frees it after 60 seconds without a command; the Python worker
+keeps Whisper resident. Say “hey Jarvis” or
 “Jarvis” followed by one command. A 210 ms quiet period after separate activation prevents the wake-phrase
 tail becoming a command. An eight-second default session deadline includes
 that settling period. The configurable maximum is fifteen seconds. A command

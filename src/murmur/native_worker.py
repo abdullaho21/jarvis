@@ -10,6 +10,10 @@ from .commands import GREETINGS, POLITE_PREFIXES, POLITE_SUFFIXES, match_candida
 from .models import (ACCURATE_MODELS, DEFAULT_ACCURATE_MODEL, accurate_model_dir,
                      accurate_model_ready, default_model_path, denoiser_path, valid_model)
 
+# The Rust worker loads Whisper when it hears a wake name and frees it after
+# this long without a command; waiting for the wake phrase needs only Vosk.
+WHISPER_IDLE_SECONDS = 60
+
 
 def package_dir(name: str) -> Path | None:
     spec = importlib.util.find_spec(name)
@@ -51,7 +55,7 @@ def prepare(config: dict, mode: str, grammar: dict) -> tuple[list[str], dict, di
               "candidates": list(match_candidates(grammar).items()),
               "wake_forms": all_wake_variants(config["activation"]),
               "greetings": list(GREETINGS), "prefixes": list(POLITE_PREFIXES),
-              "suffixes": list(POLITE_SUFFIXES)}
+              "suffixes": list(POLITE_SUFFIXES), "whisper_idle_seconds": WHISPER_IDLE_SECONDS}
     if settings["accurate"] and accurate_model_ready():
         folder = accurate_model_dir()
         native["whisper"] = {k: str(folder / v) for k, v in ACCURATE_MODELS[DEFAULT_ACCURATE_MODEL]["files"].items()}

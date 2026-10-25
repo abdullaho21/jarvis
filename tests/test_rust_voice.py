@@ -59,6 +59,7 @@ class PreparationTests(unittest.TestCase):
                 patch("murmur.native_worker.accurate_model_ready", return_value=True):
             _, payload, _ = prepare(config, "test", Parser().grammar([]))
         self.assertIsNotNone(payload["native"]["whisper"])
+        self.assertEqual(payload["native"]["whisper_idle_seconds"], 60)
         self.assertEqual([c.args[0] for c in packages.call_args_list], ["vosk"])
 
 
@@ -99,9 +100,57 @@ class RustPolicyTests(unittest.TestCase):
         self.assertNotEqual(out.returncode, 0)
         self.assertIn("size limit", json.loads(out.stdout)["message"])
 
+    def test_invalid_whisper_idle_duration_is_rejected_before_loading(self):
+        argv, payload, env = native(mode="test")
+        for value in (0, 0.5, -60, 86401):
+            with self.subTest(value=value):
+                payload["native"]["whisper_idle_seconds"] = value
+                out = subprocess.run(argv, input=json.dumps(payload) + "\n", env=env, text=True,
+                                     capture_output=True, timeout=10)
+                self.assertNotEqual(out.returncode, 0)
+                self.assertIn("Whisper idle duration", json.loads(out.stdout)["message"])
+
 
 FIXTURE = os.environ.get("MURMUR_SPEECH_TEST_RAW")
 MODEL = os.environ.get("MURMUR_VOSK_MODEL")
+WHISPER = os.environ.get("MURMUR_WHISPER_MODEL")
+
+
+def whisper_threads(pid):
+    """Whisper's loader and inference pool threads exist only while it is loaded."""
+    names = []
+    for task in Path(f"/proc/{pid}/task").iterdir():
+        try:
+            names.append((task / "comm").read_text().strip())
+        except OSError:
+            pass
+    return sum(name.startswith("whisper-") for name in names)
+
+
+def whisper_worker(idle, pcm):
+    """Worker with real Vosk/Whisper, wake name "go forward" and a paced fake microphone."""
+    config = copy.deepcopy(DEFAULTS)
+    config["privacy"]["onboarded"] = True
+    config["recognition"].update(model_path=MODEL, accurate=True)
+    config["activation"]["wake_phrase"] = "go forward"
+    argv, payload, env = native(config, "wake_word", Parser({"ten meters": "start recording"}).grammar(APPS))
+    root = Path(WHISPER)
+    payload["native"]["whisper"] = {key: str(root / f"small.en-{name}") for key, name in
+                                    (("encoder", "encoder.int8.onnx"), ("decoder", "decoder.int8.onnx"), ("tokens", "tokens.txt"))}
+    if idle is None:
+        del payload["native"]["whisper_idle_seconds"]
+    else:
+        payload["native"]["whisper_idle_seconds"] = idle
+    directory = tempfile.TemporaryDirectory()
+    fake = Path(directory.name) / "pw-record"
+    fake.write_text("#!/usr/bin/env python3\nimport os,time\nfrom pathlib import Path\naudio=bytes(19200)+Path(os.environ['PUBLIC_PCM']).read_bytes()\naudio+=bytes((-len(audio))%960)\nfor offset in range(0,len(audio),960):\n os.write(1,audio[offset:offset+960]);time.sleep(.03)\nwhile True: os.write(1,bytes(960));time.sleep(.03)\n")
+    fake.chmod(0o700)
+    env.update(PATH=directory.name + ":" + env.get("PATH", ""), PUBLIC_PCM=pcm)
+    process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, bufsize=0)
+    process.stdin.write((json.dumps(payload) + "\n").encode()); process.stdin.flush()
+    while event(process, 30)["event"] != "ready":
+        pass
+    return process, directory
 
 
 @unittest.skipUnless(binary_path() and MODEL and FIXTURE, "build Rust and supply the public fixture and Vosk model")
@@ -197,6 +246,43 @@ class RustEngineTests(unittest.TestCase):
                 if process.poll() is None:
                     process.kill(); process.wait()
                 process.stdin.close(); process.stdout.close()
+
+    def close(self, process, directory):
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill(); process.wait()
+        process.stdin.close(); process.stdout.close()
+        directory.cleanup()
+
+    @unittest.skipUnless(WHISPER, "supply the Whisper model")
+    def test_whisper_loads_on_wake_and_is_released_after_idle(self):
+        process, directory = whisper_worker(1, FIXTURE)
+        try:
+            self.assertEqual(whisper_threads(process.pid), 0, "Whisper loaded before a wake name")
+            events = [event(process, 15)]
+            while events[-1]["event"] != "command":
+                events.append(event(process, 15))
+            self.assertEqual([e["event"] for e in events if e["event"] in ("wake", "command")], ["wake", "command"])
+            self.assertEqual(events[-1]["text"], "ten meters")
+            self.assertGreater(whisper_threads(process.pid), 0)
+            deadline = time.monotonic() + 6
+            while whisper_threads(process.pid) and time.monotonic() < deadline:
+                time.sleep(.05)
+            self.assertEqual(whisper_threads(process.pid), 0, "Whisper was not released after going idle")
+            self.assertIsNone(process.poll())
+        finally:
+            self.close(process, directory)
+
+    @unittest.skipUnless(WHISPER, "supply the Whisper model")
+    def test_payload_without_idle_limit_keeps_whisper_resident(self):
+        process, directory = whisper_worker(None, FIXTURE)
+        try:
+            self.assertGreater(whisper_threads(process.pid), 0, "Whisper was not loaded at startup")
+        finally:
+            self.close(process, directory)
 
 
 if __name__ == "__main__":

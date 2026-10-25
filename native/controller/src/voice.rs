@@ -132,7 +132,9 @@ pub fn prepare(
         .map(usize::from)
         .unwrap_or(2)
         / 2;
-    let native = json!({"vosk_library":library.unwrap_or_default(),"model_path":model,"whisper":files,"denoiser":denoiser,"threads":threads.clamp(1,8),"candidates":candidates,"wake_forms":all_wake_forms(config)?,"greetings":TABLES["GREETINGS"],"prefixes":TABLES["POLITE_PREFIXES"],"suffixes":TABLES["POLITE_SUFFIXES"]});
+    // The worker loads Whisper on a wake name and frees it after a minute
+    // without a command, matching murmur.native_worker.WHISPER_IDLE_SECONDS.
+    let native = json!({"vosk_library":library.unwrap_or_default(),"model_path":model,"whisper":files,"denoiser":denoiser,"threads":threads.clamp(1,8),"candidates":candidates,"wake_forms":all_wake_forms(config)?,"greetings":TABLES["GREETINGS"],"prefixes":TABLES["POLITE_PREFIXES"],"suffixes":TABLES["POLITE_SUFFIXES"],"whisper_idle_seconds":60});
     Ok((
         worker,
         json!({"config":config,"mode":mode,"grammar":grammar,"native":native}),

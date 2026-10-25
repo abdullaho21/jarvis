@@ -1,6 +1,6 @@
 //! Owned native handles. Vosk's shared library outlives every model/decoder;
 //! Whisper and GTCRN execute through the Rust recognizer/denoiser crates.
-use crate::{NativeConfig, Result};
+use crate::{NativeConfig, Result, WhisperFiles};
 use jarvis_gtcrn::Denoiser;
 use jarvis_whisper::Recognizer;
 use libloading::Library;
@@ -19,6 +19,7 @@ struct Api {
     set_words: unsafe extern "C" fn(Handle, c_int),
     accept: unsafe extern "C" fn(Handle, *const c_char, c_int) -> c_int,
     result: unsafe extern "C" fn(Handle) -> *const c_char,
+    partial_result: unsafe extern "C" fn(Handle) -> *const c_char,
     final_result: unsafe extern "C" fn(Handle) -> *const c_char,
     reset: unsafe extern "C" fn(Handle),
     _library: Library,
@@ -46,6 +47,7 @@ impl Model {
                 set_words: *lib.get(b"vosk_recognizer_set_words\0")?,
                 accept: *lib.get(b"vosk_recognizer_accept_waveform\0")?,
                 result: *lib.get(b"vosk_recognizer_result\0")?,
+                partial_result: *lib.get(b"vosk_recognizer_partial_result\0")?,
                 final_result: *lib.get(b"vosk_recognizer_final_result\0")?,
                 reset: *lib.get(b"vosk_recognizer_reset\0")?,
                 _library: lib,
@@ -100,13 +102,18 @@ impl Decoder {
         Ok(result != 0)
     }
     pub fn result(&self, final_result: bool) -> Result<Value> {
-        let ptr = unsafe {
-            if final_result {
-                (self.model.api.final_result)(self.ptr)
-            } else {
-                (self.model.api.result)(self.ptr)
-            }
-        };
+        self.read(if final_result {
+            self.model.api.final_result
+        } else {
+            self.model.api.result
+        })
+    }
+    /// The in-progress hypothesis, `{"partial": "..."}`, without ending the utterance.
+    pub fn partial(&self) -> Result<Value> {
+        self.read(self.model.api.partial_result)
+    }
+    fn read(&self, call: unsafe extern "C" fn(Handle) -> *const c_char) -> Result<Value> {
+        let ptr = unsafe { call(self.ptr) };
         if ptr.is_null() {
             return Err("Vosk returned a null result".into());
         }
@@ -135,13 +142,11 @@ impl Transcriber {
             .whisper
             .as_ref()
             .ok_or("Whisper model is not configured")?;
-        let recognizer = Recognizer::load(
-            &files.encoder,
-            &files.decoder,
-            &files.tokens,
-            config.threads as usize,
-        )?;
-        let denoiser = if let Some(path) = &config.denoiser {
+        Self::load(files, config.denoiser.as_deref(), config.threads as usize)
+    }
+    pub fn load(files: &WhisperFiles, denoiser: Option<&str>, threads: usize) -> Result<Self> {
+        let recognizer = Recognizer::load(&files.encoder, &files.decoder, &files.tokens, threads)?;
+        let denoiser = if let Some(path) = denoiser {
             Some(Denoiser::load(path)?)
         } else {
             None

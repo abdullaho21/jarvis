@@ -10,8 +10,11 @@ All recognition uses the CPU. Optional GTCRN enhancement remains off by default.
 SHA-256 values and extracts only required files. Model specifications, URLs,
 sizes and hashes are in `src/murmur/models.py`. Models are not vendored.
 
-Whisper stays resident so commands do not reload hundreds of megabytes of
-weights. ONNX allocation and thread-pool tuning reduce idle memory and CPU work
+The Python worker keeps Whisper resident so commands do not reload hundreds of
+megabytes of weights. The Rust worker instead loads it when a wake name is heard
+and releases it after a minute without a command; see
+[on-demand Whisper](whisper-on-demand.md) for the memory/latency tradeoff.
+ONNX allocation and thread-pool tuning reduce idle memory and CPU work
 without replacing the recognizer. See [performance](performance.md) and
 [memory/background verification](memory-background.md) for measured limits.
 

@@ -13,6 +13,7 @@ Start with the root [README](../README.md) for installation and everyday use.
 | [Rust denoiser](rust-denoiser.md) | Rust GTCRN computation, standalone binary and waveform verification |
 | [Rust Whisper](rust-whisper.md) | Rust recognition computation, cache reconstruction and memory/latency tradeoffs |
 | [Voice-worker memory](rust-worker-memory.md) | Process memory audit and lossless Whisper embedding compaction |
+| [On-demand Whisper](whisper-on-demand.md) | Loading Whisper on a wake name, idle release, and measured RAM/latency tradeoff |
 | [Rust controller](rust-controller.md) | Native service API, process ownership, compatibility checks and controller memory comparison |
 | [Rust CLI](rust-cli.md) | Native controls, Waybar, aliases, diagnostics and verified setup |
 | [Recording](recording.md) | Permissions, audio sources, encoders and recovery |

@@ -355,6 +355,7 @@ pub fn run(payload: Payload, mut controls: Vec<u8>) -> Result<()> {
             }
             continue;
         }
+        engine.as_mut().unwrap().maintain()?;
         if now() < cooldown {
             continue;
         }

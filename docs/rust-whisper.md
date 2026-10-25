@@ -45,8 +45,10 @@ A targeted optimization precomputes constant int8 weight column sums.
 Without it, tract's constant-folding memory budget leaves large int8-to-int32
 expansions and reductions at runtime, retaining duplicate weights. A regression
 test verifies the optimization preserves exact integer results and removes the
-expanded-weight dependency. The decoder is imported before the encoder, and
-Whisper before Vosk, so their import scratch does not overlap unnecessarily.
+expanded-weight dependency. The decoder is imported before the encoder. A
+worker without an idle limit loads Whisper before Vosk, so their import scratch
+does not overlap unnecessarily; the default [on-demand](whisper-on-demand.md)
+worker loads it after a wake name instead.
 
 Two additional Rust kernels accelerate the hottest operations without changing
 precision. Dynamic quantization uses runtime-dispatched AVX2 on supported

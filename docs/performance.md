@@ -1,5 +1,10 @@
 # Current performance
 
+Since 2026-10-25 the Rust worker loads Whisper on demand: about 156 MiB while
+waiting for the wake phrase, versus 469 MiB with Whisper kept loaded; see
+[on-demand Whisper](whisper-on-demand.md). The dated comparisons below
+retain their original scope and baselines.
+
 Measured locally on 2026-10-21, AMD Ryzen 7 7800X3D, 16 logical CPUs,
 Python 3.14.8. Voice recognition uses Vosk plus int8 Whisper small.en,
 eight inference threads and CPU execution. The GTK client is separate.

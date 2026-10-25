@@ -1,12 +1,13 @@
 mod engine;
 mod inference;
 mod matching;
+mod on_demand;
 mod worker;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct WhisperFiles {
     encoder: String,
     decoder: String,
@@ -19,6 +20,10 @@ struct NativeConfig {
     whisper: Option<WhisperFiles>,
     denoiser: Option<String>,
     threads: i32,
+    /// Load Whisper on wake and release it after this many idle seconds.
+    /// Absent: load it at startup and keep it for the worker's lifetime.
+    #[serde(default)]
+    whisper_idle_seconds: Option<f64>,
     candidates: Vec<(String, String)>,
     wake_forms: Vec<String>,
     greetings: Vec<String>,
@@ -173,6 +178,13 @@ fn policy(reader: &mut impl BufRead) -> Result<()> {
     Ok(())
 }
 fn run() -> Result<()> {
+    // One malloc arena, set before any thread starts. Whisper's loader and
+    // inference threads would otherwise allocate in per-thread arenas that keep
+    // their pages after on-demand Whisper is released and trimmed.
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    unsafe {
+        libc::mallopt(libc::M_ARENA_MAX, 1);
+    }
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args
         .iter()
@@ -198,6 +210,13 @@ fn run() -> Result<()> {
     )?;
     if !(1..=32).contains(&payload.native.threads) {
         return Err("Invalid inference thread count".into());
+    }
+    if payload
+        .native
+        .whisper_idle_seconds
+        .is_some_and(|s| !(1.0..=86400.0).contains(&s))
+    {
+        return Err("Invalid Whisper idle duration".into());
     }
     if args
         .first()

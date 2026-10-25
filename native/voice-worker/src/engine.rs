@@ -1,9 +1,12 @@
-use crate::inference::{Decoder, Model, Transcriber};
+use crate::inference::{trim, Decoder, Model, Transcriber};
 use crate::matching::{phrase, Matcher};
+use crate::on_demand::{Loader, OnDemand};
 use crate::{NativeConfig, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Default, Deserialize)]
 pub struct Grammar {
@@ -52,7 +55,7 @@ pub struct Engine {
     wake: Decoder,
     command: Decoder,
     open: Option<Decoder>,
-    transcriber: Option<Transcriber>,
+    whisper: Option<OnDemand<Transcriber>>,
     matcher: Matcher,
     sounds: HashMap<String, String>,
     wake_names: Vec<Vec<String>>,
@@ -112,10 +115,18 @@ fn confidence(result: &Value) -> Option<f64> {
 
 impl Engine {
     pub fn new(native: &NativeConfig, grammar: &Grammar, config: &Value) -> Result<Self> {
-        // Compile Whisper before loading resident Vosk state, so its one-time
-        // model-import scratch does not overlap Vosk's steady allocation.
-        let transcriber = if native.whisper.is_some() {
-            Some(Transcriber::new(native)?)
+        // Without an idle limit, compile Whisper before loading resident Vosk
+        // state, so its one-time model-import scratch does not overlap Vosk's
+        // steady allocation. With one, Whisper loads on a background thread
+        // once a wake name is heard and is released after going unused.
+        let whisper = if let Some(files) = &native.whisper {
+            let (files, denoiser) = (files.clone(), native.denoiser.clone());
+            let threads = native.threads as usize;
+            let load: Loader<Transcriber> = Arc::new(move || {
+                Transcriber::load(&files, denoiser.as_deref(), threads).map_err(|e| e.to_string())
+            });
+            let idle = native.whisper_idle_seconds.map(Duration::from_secs_f64);
+            Some(OnDemand::new(load, idle)?)
         } else {
             None
         };
@@ -299,7 +310,7 @@ impl Engine {
             wake,
             command,
             open,
-            transcriber,
+            whisper,
             matcher,
             sounds,
             wake_names,
@@ -381,9 +392,39 @@ impl Engine {
         self.pending = None;
         self.unmatched = None;
         self.mode = Some(if command { "command" } else { "wake" });
+        if command {
+            self.prepare_whisper();
+        }
     }
     pub fn after_wake(&mut self) -> Option<Recognition> {
         self.pending.take()
+    }
+    fn prepare_whisper(&mut self) {
+        if let Some(whisper) = &mut self.whisper {
+            whisper.prepare();
+        }
+    }
+    /// Collects a background Whisper load and releases Whisper once it has
+    /// gone unused while waiting for the wake phrase.
+    pub fn maintain(&mut self) -> Result<()> {
+        let waiting = self.mode == Some("wake") && self.pending.is_none();
+        if let Some(whisper) = &mut self.whisper {
+            if whisper.maintain(!waiting)? {
+                trim();
+            }
+        }
+        Ok(())
+    }
+    /// Position and length of a wake name within the first three words.
+    fn wake_at(&self, spoken: &[&str]) -> Option<(usize, usize)> {
+        (0..3).find_map(|i| {
+            self.wake_names.iter().find_map(|name| {
+                spoken
+                    .get(i..i + name.len())
+                    .filter(|s| s.iter().copied().eq(name.iter().map(String::as_str)))
+                    .map(|_| (i, name.len()))
+            })
+        })
     }
     pub fn feed(&mut self, pcm: &[u8], quiet: bool) -> Result<Option<Recognition>> {
         if pcm.len() != 960 {
@@ -416,7 +457,7 @@ impl Engine {
         if let Some(result) = self.decode(pcm)? {
             return Ok(Some(result));
         }
-        if self.mode == Some("command") && self.transcriber.is_some() {
+        if self.mode == Some("command") && self.whisper.is_some() {
             if quiet {
                 self.quiet_run += 1;
             } else {
@@ -453,6 +494,20 @@ impl Engine {
                 let result = self.wake.result(false)?;
                 return self.wake_result(result, &audio, start);
             }
+            // Every fourth speech frame, start loading Whisper once the
+            // hypothesis so far has a wake name, so it is ready (or nearly)
+            // when a command spoken in the same breath ends.
+            if self.whisper.is_some() && self.utterance_bytes.is_multiple_of(3840) {
+                let partial = self.wake.partial()?;
+                let words: Vec<_> = partial["partial"]
+                    .as_str()
+                    .unwrap_or("")
+                    .split_whitespace()
+                    .collect();
+                if self.wake_at(&words).is_some() {
+                    self.prepare_whisper();
+                }
+            }
             return Ok(None);
         }
         self.command_audio.extend_from_slice(pcm);
@@ -482,14 +537,7 @@ impl Engine {
             })
             .unwrap_or_default();
         let spoken: Vec<_> = words.iter().map(|w| w["word"].as_str().unwrap()).collect();
-        let Some((position, size)) = (0..3).find_map(|i| {
-            self.wake_names.iter().find_map(|name| {
-                spoken
-                    .get(i..i + name.len())
-                    .filter(|s| s.iter().copied().eq(name.iter().map(String::as_str)))
-                    .map(|_| (i, name.len()))
-            })
-        }) else {
+        let Some((position, size)) = self.wake_at(&spoken) else {
             return Ok(None);
         };
         let name = &words[position..position + size];
@@ -500,6 +548,8 @@ impl Engine {
         {
             return Ok(None);
         }
+        // The command follows in this utterance or after a pause.
+        self.prepare_whisper();
         let rest = &words[position + size..];
         self.pending = None;
         if !rest.is_empty() {
@@ -579,9 +629,9 @@ impl Engine {
         self.speech_frames = 0;
         self.quiet_run = 0;
         let mut heard_match = self.matcher.closest(&heard);
-        if let Some(transcriber) = &self.transcriber {
+        if let Some(whisper) = &mut self.whisper {
             if !audio.is_empty() {
-                let accurate = phrase(&transcriber.transcribe(&audio)?);
+                let accurate = phrase(&whisper.get()?.transcribe(&audio)?);
                 let accurate_match = self.matcher.closest(&accurate);
                 if accurate_match.is_some() || heard_match.is_none() {
                     if !accurate.is_empty() {
