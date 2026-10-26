@@ -289,6 +289,11 @@ class VoskEngine:
             result = self._decode(frame)
             if result is not None:
                 return result
+        if quiet and self._hangover == 0 and self._mode == "wake":
+            # Once quiet frames stop reaching Vosk, discard any unfinished
+            # background utterance so the next wake starts fresh. Do not force
+            # a final hypothesis into a wake; command sessions keep their tail.
+            self._reset()
         if self._mode == "command" and self._transcriber is not None:
             # Our own end-of-command check: Vosk may keep waiting when a TV or
             # game voice continues in the background after you stop talking.

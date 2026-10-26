@@ -23,7 +23,9 @@ installation instructions below remain available for Arch/CachyOS and Hyprland.
 - Switch workspaces, move a window, set fullscreen and adjust volume.
 - Start and stop preconfigured screen recording, with automatic HDR detection.
 - Optional instant replay: the last two minutes of screen, game sound and
-  microphone stay in RAM; “clip that” saves them with a confirmation chirp
+  microphone stay in capped RAM by default; explicit **Disk** mode continuously
+  writes unsaved video/audio to private rolling files to reduce RAM use.
+  “Clip that” saves a clip with a confirmation chirp
   (needs `gpu-screen-recorder`; idea from [Kairos](https://github.com/BasilForge/Kairos)).
 - A Clips page that plays saved clips in the window (needs `gst-plugins-good`).
 - Choose GPU AV1, HEVC or H.264, simple quality/bitrate budgets and an FPS slider with storage estimates.
@@ -35,6 +37,9 @@ installation instructions below remain available for Arch/CachyOS and Hyprland.
 Speech maps to allowlisted actions. It cannot run arbitrary shell commands.
 Audio and transcripts are not saved by voice recognition. Screen recordings,
 including optional microphone tracks, are separate deliberate user output.
+Disk replay is a separate privacy choice: writes follow bitrate (roughly
+1–10 GB/hour), crash leftovers last until the next replay start, and deletion
+is not secure erasure. See [replay storage and limits](docs/recording.md#replay-storage-and-privacy).
 
 ## Install from this checkout
 

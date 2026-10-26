@@ -623,7 +623,7 @@ class Window:
         )
         self.note(
             p,
-            "Instant replay uses the recording display, format, frame rate and size controls. Compressed video stays in RAM until you save. The retained video budget is 256 MiB; high bitrates shorten the available history.",
+            "Replay uses the recording display and encoding controls. RAM writes video only when you save. Choosing Disk writes unsaved screen and sound continuously, roughly 1–10 GB/hour depending on bitrate. Deleted files are not securely erased; crash leftovers are cleaned on next start.",
             1,
         )
         self.field(p, "History (10–600 seconds)", "replay", "seconds", 2)
@@ -631,6 +631,9 @@ class Window:
         self.check(p, "Include microphone", "replay", "microphone", 4)
         self.check(p, "Play a sound when a replay is saved", "replay", "sound", 5)
         self.check(p, "Start replay with the service", "replay", "autostart", 6)
+        self.field(p, "Storage", "replay", "storage", 7, choices={"RAM": "ram", "Disk (continuous writes)": "disk"})
+        self.field(p, "Encoded-history budget (64–16384 MiB)", "replay", "max_mb", 8)
+        self.field(p, "Private disk-buffer directory (blank: app data)", "replay", "buffer_dir", 9)
         self.buttons(
             p,
             [
@@ -638,12 +641,12 @@ class Window:
                 ("Save clip", lambda: self.call("replay_save")),
                 ("Stop replay", lambda: self.call("replay_stop")),
             ],
-            7,
+            10,
         )
         self.note(
             p,
-            "Save finalizes the current second, so a clip can include up to one extra second after your request. Save and review settings before starting replay.",
-            8,
+            "Save finalizes the current second, so a clip can include up to one extra second. Disk mode needs the Rust helper and a local NTFS/ReFS disk. Pending segments and files pinned by a save share its size cap; a save can shorten history or stop replay if that cap is exhausted. RAM has additional in-flight and saved-snapshot memory. Save settings before starting replay.",
+            11,
         )
 
     def build_displays(self, p):

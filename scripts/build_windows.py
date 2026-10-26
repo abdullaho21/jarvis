@@ -37,6 +37,9 @@ def main():
     )
     parser.add_argument("--extra-licenses", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=ROOT / "dist/windows")
+    parser.add_argument("--replay-store", type=Path,
+                        default=ROOT / "src/murmur/bin/jarvis-replay-store.exe",
+                        help="Rust replay helper built with scripts/build_replay_store.py")
     args = parser.parse_args()
     if sys.platform != "win32":
         parser.error("Run with Windows Python (a real Windows host or isolated Wine)")
@@ -57,6 +60,8 @@ def main():
     for tool in ("ffmpeg.exe", "ffprobe.exe"):
         if not (args.tools / tool).is_file():
             raise ValueError(f"Missing Windows tool: {tool}")
+    if not args.replay_store.is_file():
+        raise ValueError("Build scripts/build_replay_store.py before packaging disk replay")
     subprocess.run(
         [
             sys.executable,
@@ -73,6 +78,7 @@ def main():
     )
     bundle = args.output / "frozen/Jarvis"
     shutil.copytree(args.tools, bundle / "tools", dirs_exist_ok=True)
+    shutil.copy2(args.replay_store, bundle / "tools/jarvis-replay-store.exe")
     shutil.copytree(
         args.models / MODEL_NAME, bundle / "models" / MODEL_NAME, dirs_exist_ok=True
     )

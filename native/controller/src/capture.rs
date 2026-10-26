@@ -1,4 +1,4 @@
-use crate::{desktop, err, util, Result};
+use crate::{desktop, err, replay_budget::Budget, util, Result};
 use serde_json::{json, Value};
 use std::{
     collections::VecDeque,
@@ -6,6 +6,10 @@ use std::{
     os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
     process::Stdio,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufReader},
@@ -99,7 +103,7 @@ pub fn replay_command(cfg: &Value, ipc: &Path, folder: &Path, color: &str) -> Ve
         "-r".into(),
         replay["seconds"].to_string(),
         "-replay-storage".into(),
-        "ram".into(),
+        replay["storage"].as_str().unwrap_or("ram").into(),
         "-c".into(),
         "mp4".into(),
         "-o".into(),
@@ -308,9 +312,37 @@ impl Capture {
         let folder = fs::canonicalize(folder)?;
         let mut staging = None;
         let mut final_path = None;
+        let budget = if self.replay {
+            Some(Budget::new(cfg)?)
+        } else {
+            None
+        };
+        if budget.as_ref().is_some_and(|b| b.disk.is_some()) {
+            // 6.1.5 is the inspected implementation: -o holds the buffer and
+            // -ro independently chooses the destination for saved clips.
+            let version = util::query(&[backend.into(), "--version".into()], 3).await?;
+            let numbers: Vec<u32> = version
+                .trim()
+                .split('.')
+                .filter_map(|v| v.parse().ok())
+                .collect();
+            if numbers.as_slice() < [6, 1, 5].as_slice() {
+                return err("Disk replay needs gpu-screen-recorder 6.1.5 or newer.");
+            }
+        }
         let mut argv = if self.replay {
             util::private_dir(self.ipc.parent().ok_or("Invalid replay socket")?)?;
-            replay_command(cfg, &self.ipc, &folder, &self.color)
+            let buffer = budget.as_ref().and_then(|b| b.disk.as_ref());
+            let mut a = replay_command(
+                cfg,
+                &self.ipc,
+                buffer.map(|s| s.path.as_path()).unwrap_or(&folder),
+                &self.color,
+            );
+            if buffer.is_some() {
+                a.extend(["-ro".into(), folder.to_string_lossy().into()]);
+            }
+            a
         } else {
             if let Some(pid) = orphaned().first() {
                 return err(format!("A recorder from an earlier Murmur session is still running (PID {pid}). Stop it with: kill -INT {pid}"));
@@ -444,6 +476,19 @@ impl Capture {
         };
         argv[0] = util::which(&argv[0]).unwrap().to_string_lossy().into();
         let mut command = util::owned_command(&argv, libc::SIGINT, true)?;
+        if let Some(session) = budget.as_ref().and_then(|b| b.disk.as_ref()) {
+            let fd = session.lock_fd();
+            // Keep the root locked even in the brief interval between a
+            // controller crash and the owned recorder handling SIGINT.
+            unsafe {
+                command.pre_exec(move || {
+                    if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+        }
         command.stdout(Stdio::null()).stderr(Stdio::piped());
         let mut child = match command.spawn() {
             Ok(c) => c,
@@ -455,15 +500,30 @@ impl Capture {
             }
         };
         let mut errors = child.stderr.take().ok_or("Missing capture stderr")?;
+        let write_failed = Arc::new(AtomicBool::new(false));
+        let failed = write_failed.clone();
         let mut diagnostics = tokio::spawn(async move {
             let mut tail = VecDeque::with_capacity(4);
             let mut chunk = [0; 4096];
+            let mut previous = Vec::new();
             while let Ok(n) = errors.read(&mut chunk).await {
                 if n == 0 {
                     break;
                 }
                 if tail.len() == 4 {
                     tail.pop_front();
+                }
+                previous.extend_from_slice(&chunk[..n]);
+                let message = String::from_utf8_lossy(&previous);
+                if message.contains("failed to add replay buffer data")
+                    || message.contains("failed to create replay file")
+                    || message.contains("failed to create replay directory")
+                    || message.contains("No space left on device")
+                {
+                    failed.store(true, Ordering::Relaxed);
+                }
+                if previous.len() > 256 {
+                    previous.drain(..previous.len() - 256);
                 }
                 tail.push_back(chunk[..n].to_vec());
             }
@@ -477,7 +537,14 @@ impl Capture {
         let codec = self.codec.clone();
         self.set(
             if replay { "on" } else { "recording" },
-            if replay {
+            if replay && cfg["replay"]["storage"] == "disk" {
+                format!(
+                    "Instant replay on · {} · up to {} seconds · disk buffer · {} MiB budget.",
+                    color.to_uppercase(),
+                    cfg["replay"]["seconds"],
+                    cfg["replay"]["max_mb"],
+                )
+            } else if replay {
                 format!(
                     "Instant replay on · {} · keeping the last {} seconds in memory.",
                     color.to_uppercase(),
@@ -492,7 +559,36 @@ impl Capture {
             staging.as_deref(),
         );
         self.task = Some(tokio::spawn(async move {
-            let (requested, forced, code) = tokio::select! {result=child.wait()=>(false,false,result),_=rx.recv()=>{let previous=status.borrow().clone();status.send_replace(json!({"state":"stopping","message":if replay{"Stopping instant replay…"}else{"Finishing recording…"},"file":previous["file"]}));let forced=util::stop(&mut child,libc::SIGINT,if replay{5}else{12}).await.unwrap_or(true);(true,forced,child.wait().await)}};
+            let pressure = async {
+                let Some(budget) = budget.as_ref() else {
+                    return std::future::pending::<String>().await;
+                };
+                let mut tick = tokio::time::interval(Duration::from_millis(250));
+                loop {
+                    tick.tick().await;
+                    if write_failed.load(Ordering::Relaxed) {
+                        return "Replay stopped safely: the recorder could not write replay buffer data. Check disk space and permissions.".into();
+                    }
+                    if let Err(e) = budget.check() {
+                        return e.to_string();
+                    }
+                }
+            };
+            let mut failure = None;
+            let (requested, forced, code) = tokio::select! {
+                result=child.wait()=>(false,false,result),
+                reason=pressure=>{
+                    failure = Some(reason);
+                    let forced=util::stop(&mut child,libc::SIGINT,5).await.unwrap_or(true);
+                    (false,forced,child.wait().await)
+                },
+                _=rx.recv()=>{
+                    let previous=status.borrow().clone();
+                    status.send_replace(json!({"state":"stopping","message":if replay{"Stopping instant replay…"}else{"Finishing recording…"},"file":previous["file"]}));
+                    let forced=util::stop(&mut child,libc::SIGINT,if replay{5}else{12}).await.unwrap_or(true);
+                    (true,forced,child.wait().await)
+                }
+            };
             let tail = match timeout(Duration::from_secs(2), &mut diagnostics).await {
                 Ok(result) => result.unwrap_or_default(),
                 Err(_) => {
@@ -502,7 +598,10 @@ impl Capture {
                 }
             };
             if replay {
-                status.send_replace(if requested{json!({"state":"off","message":"Instant replay is off.","file":null})}else{json!({"state":"error","message":format!("Instant replay stopped (status {:?}). {}",code,String::from_utf8_lossy(&tail).trim().chars().take(800).collect::<String>()),"file":null})});
+                // Keep the lease until the owned recorder has exited, then
+                // remove all unsaved bytes, including after a forced stop.
+                drop(budget);
+                status.send_replace(if requested{json!({"state":"off","message":"Instant replay is off.","file":null})}else{json!({"state":"error","message":failure.unwrap_or_else(|| format!("Instant replay stopped (status {:?}). {}",code,String::from_utf8_lossy(&tail).trim().chars().take(800).collect::<String>())),"file":null})});
                 return;
             }
             let partial = staging.unwrap();
@@ -608,11 +707,25 @@ impl Capture {
         .await;
         match saved {
             Ok(Ok(path)) => {
+                let current = self.snapshot();
+                let state = if self.active() && current["state"] != "error" {
+                    "on"
+                } else {
+                    "error"
+                };
                 self.set(
-                    "on",
+                    state,
                     format!(
-                        "Saved replay: {}",
-                        path.file_name().unwrap_or_default().to_string_lossy()
+                        "Saved replay: {}{}",
+                        path.file_name().unwrap_or_default().to_string_lossy(),
+                        if state == "error" {
+                            format!(
+                                ". {}",
+                                current["message"].as_str().unwrap_or("Replay stopped.")
+                            )
+                        } else {
+                            String::new()
+                        },
                     ),
                     Some(&path),
                 );
@@ -628,7 +741,9 @@ impl Capture {
                 } else {
                     message
                 };
-                self.set("on", &message, previous["file"].as_str().map(Path::new));
+                if self.active() && self.snapshot()["state"] != "error" {
+                    self.set("on", &message, previous["file"].as_str().map(Path::new));
+                }
                 err(message)
             }
         }

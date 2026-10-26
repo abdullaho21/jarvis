@@ -66,6 +66,7 @@ name = "jarvis-controller"
 version = "0.2.0"
 dependencies = [
  "jarvis-phrases",
+ "jarvis-replay-store",
  "libc",
  "regex",
  "serde",
@@ -83,6 +84,14 @@ dependencies = [
  "serde_json",
  "unicode-casefold",
  "unicode-normalization",
+]
+
+[[package]]
+name = "jarvis-replay-store"
+version = "0.2.0"
+dependencies = [
+ "libc",
+ "serde_json",
 ]
 
 [[package]]

@@ -441,8 +441,9 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         controls.append(self.record_stop)
         live.append(controls)
         body.append(live)
-        replay = self._card("Instant replay", "Keeps the last moments of your screen and sound in memory with gpu-screen-recorder. "
-                            "Nothing is written until you save, here or by saying “clip that”. Uses the display and folder below.")
+        replay = self._card("Instant replay", "Keeps recent screen and sound using the display below. "
+                            "RAM writes video only when you save. Choosing Disk writes unsaved screen and sound continuously; "
+                            "it can survive a crash until cleanup on next start. Disk writes follow bitrate (roughly 1–10 GB/hour).")
         self.replay_status = _label("Replay off", "state-title")
         self.replay_detail = _label("Start replay to keep the last moments ready to save.", "caption")
         self.replay_detail.set_selectable(True)
@@ -457,6 +458,15 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         replay.append(replay_controls)
         self.replay_seconds = self._spin(10, 600, 10)
         self._row(replay, "Replay length (seconds)", self.replay_seconds)
+        self.replay_storage = Gtk.DropDown.new_from_strings(["RAM", "Disk (continuous writes)"])
+        self._row(replay, "Replay storage", self.replay_storage, "Disk requires the Rust controller and a real disk; tmpfs is refused.")
+        self.replay_max_mb = self._spin(64, 16384, 64)
+        self._row(replay, "Disk buffer budget (MiB)", self.replay_max_mb,
+                  "Disk only: replay stops when the buffer reaches this size, checked every 250 ms. At least 512 MiB, "
+                  "because gpu-screen-recorder writes 256 MiB buffer files. RAM replay is not capped on Linux.")
+        self.replay_storage.connect("notify::selected", lambda *_: self._replay_storage_changed())
+        self.replay_buffer_dir = self._entry("Default private app-data directory")
+        self._row(replay, "Private disk-buffer directory", self.replay_buffer_dir, "Optional dedicated directory. Unsaved buffers are deleted on stop and stale buffers on next start.")
         self.replay_game = Gtk.Switch()
         self._row(replay, "Game sound", self.replay_game, "Everything you hear, from your default output.")
         self.replay_mic = Gtk.Switch()
@@ -953,6 +963,9 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         self.sound_feedback.set_active(bool(recorder.get("sound_feedback", False)))
         replay = self.config.get("replay", {})
         self.replay_seconds.set_value(float(replay.get("seconds", 120)))
+        self.replay_storage.set_selected(1 if replay.get("storage", "ram") == "disk" else 0)
+        self.replay_max_mb.set_value(float(replay.get("max_mb", 256)))
+        self.replay_buffer_dir.set_text(replay.get("buffer_dir", ""))
         self.replay_autostart.set_active(bool(replay.get("autostart", False)))
         self.replay_game.set_active(bool(replay.get("game_audio", True)))
         self.replay_mic.set_active(bool(replay.get("microphone", True)))
@@ -1234,8 +1247,16 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
             "codec": CODECS[self.codec.get_selected()], "quality": self.quality.get_value_as_int()},
             "replay": {"seconds": self.replay_seconds.get_value_as_int(), "autostart": self.replay_autostart.get_active(),
                        "game_audio": self.replay_game.get_active(), "microphone": self.replay_mic.get_active(),
-                       "sound": self.replay_sound.get_active()}},
+                       "sound": self.replay_sound.get_active(),
+                       "storage": "disk" if self.replay_storage.get_selected() == 1 else "ram",
+                       "max_mb": self.replay_max_mb.get_value_as_int(), "buffer_dir": self.replay_buffer_dir.get_text().strip()}},
             "Recorder settings saved. Start recording explicitly, or say “Start recording”.")
+
+    def _replay_storage_changed(self) -> None:
+        # Disk needs room for gpu-screen-recorder's 256 MiB files. Raise, never
+        # lower, so a larger saved budget is kept.
+        if self.replay_storage.get_selected() == 1:
+            self.replay_max_mb.set_value(max(512, self.replay_max_mb.get_value()))
 
     def _encoding_changed(self) -> None:
         budget = self.rate_control.get_selected() == 1

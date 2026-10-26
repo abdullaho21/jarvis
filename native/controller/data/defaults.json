@@ -55,6 +55,9 @@
     "autostart": false,
     "game_audio": true,
     "microphone": true,
-    "sound": true
+    "sound": true,
+    "storage": "ram",
+    "max_mb": 256,
+    "buffer_dir": ""
   }
 }

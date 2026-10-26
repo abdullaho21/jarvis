@@ -9,14 +9,23 @@ from ..host import app_dir, child_options, tool
 
 def report():
     from ..doctor import _voice_engine
+    from ..process_memory import service_snapshot
 
     tools = {}
-    for name in ("ffmpeg", "ffprobe"):
-        binary = tool(name)
+    for name in ("ffmpeg", "ffprobe", "jarvis-replay-store"):
+        if name == "jarvis-replay-store":
+            from ..replay_store import binary as replay_binary
+            try:
+                binary = replay_binary()
+            except RuntimeError as exc:
+                tools[name] = {"path": None, "ok": False, "error": str(exc)}
+                continue
+        else:
+            binary = tool(name)
         try:
             result = (
                 subprocess.run(
-                    [binary, "-version"],
+                    [binary, "--version" if name == "jarvis-replay-store" else "-version"],
                     capture_output=True,
                     text=True,
                     timeout=5,
@@ -40,6 +49,7 @@ def report():
         "app_dir": str(app_dir()),
         "frozen": bool(getattr(sys, "frozen", False)),
         "voice_engine": _voice_engine(),
+        "memory": service_snapshot(),
         "tools": tools,
         "dependencies": {
             name: importlib.util.find_spec(name) is not None

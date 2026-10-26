@@ -14,6 +14,11 @@ sherpa-onnx / ONNX Runtime: Apache-2.0 / MIT; included upstream notices.
 Whisper model: OpenAI, MIT; int8 ONNX conversion distributed by sherpa-onnx.
 Vosk small English 0.15 model: Apache-2.0.
 GTCRN denoising model: MIT; upstream license included.
+Rust replay helper: Jarvis MIT code, Rust standard library (MIT/Apache-2.0
+and bundled notices), serde_json/serde_core/itoa/libc/memchr (MIT alternative)
+and zmij (MIT). See licenses/replay-store/ for upstream license texts and
+Rust standard-library copyright notices. Its exact Cargo versions are in
+native/replay-store/Cargo.lock in the source distribution.
 
 The manifest records the exact dependency versions and SHA-256 hashes of
 bundled files. licenses/ also contains notices for supporting Python packages

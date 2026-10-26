@@ -110,6 +110,8 @@ class PreparationTests(unittest.TestCase):
             _, payload, _ = prepare(config, "test", Parser().grammar([]))
         self.assertIsNotNone(payload["native"]["whisper"])
         self.assertEqual(payload["native"]["whisper_idle_seconds"], 60)
+        self.assertNotIn("vosk_fast_path", payload["native"])
+        self.assertNotIn("vosk_finalize_utterances", payload["native"])
         self.assertEqual([c.args[0] for c in packages.call_args_list], ["vosk"])
 
 
@@ -205,6 +207,75 @@ def whisper_worker(idle, pcm):
 
 @unittest.skipUnless(binary_path() and MODEL and FIXTURE, "build Rust and supply the public fixture and Vosk model")
 class RustEngineTests(unittest.TestCase):
+    def test_finalized_decoders_recover_wakes_and_commands_across_repeated_background(self):
+        from scripts.benchmark_vosk_finalization import engine_probe
+        binary = Path(__file__).resolve().parents[1] / "native/voice-worker/target/release/jarvis-voice"
+        for finalize in (False, True):
+            with self.subTest(finalize=finalize):
+                result = engine_probe(binary, Path(FIXTURE), finalize, 3, 12)
+                self.assertEqual(result["correct_commands"], 6)
+                self.assertEqual(result["background_events"], 0)
+                self.assertTrue(result["commands_identical"])
+
+    def test_engine_probe_rejects_invalid_audio_repetition(self):
+        config = copy.deepcopy(DEFAULTS)
+        config["recognition"].update(model_path=MODEL, accurate=False)
+        argv, payload, env = native(config)
+        for repeat in (0, 21, -1, True, "3"):
+            with self.subTest(repeat=repeat):
+                request = {"path": FIXTURE, "repeat": repeat}
+                output = subprocess.run(argv + ["--engine"], input=json.dumps(payload) + "\n" + json.dumps(request) + "\n",
+                                        text=True, capture_output=True, env=env, timeout=20)
+                self.assertNotEqual(output.returncode, 0)
+                error = json.loads(output.stdout.splitlines()[-1])
+                self.assertEqual(error["event"], "error")
+                self.assertRegex(error["message"], "repetition")
+
+    def test_decoder_history_probe_runs_without_a_capture_program(self):
+        config = copy.deepcopy(DEFAULTS)
+        config["recognition"].update(model_path=MODEL, accurate=False)
+        config["activation"]["wake_phrase"] = "go forward"
+        _, payload, env = native(config, grammar=Parser({"ten meters": "start recording"}).grammar(APPS))
+        env["PATH"] = "/no/capture/program"
+        binary = Path(__file__).resolve().parents[1] / "native/voice-worker/target/release/jarvis-voice"
+        request = {"path": FIXTURE, "decoder": "wake", "policy": "finalize", "cycles": 3, "seconds_per_cycle": 1}
+        output = subprocess.run([str(binary), "--decoder-history"], input=json.dumps(payload) + "\n" + json.dumps(request) + "\n",
+                                text=True, capture_output=True, check=True, env=env, timeout=20)
+        rows = [json.loads(line) for line in output.stdout.splitlines()]
+        self.assertEqual([row["event"] for row in rows], ["ready", "cycle", "cycle", "cycle"])
+        self.assertAlmostEqual(rows[-1]["decoded_seconds"], 2.97)
+        self.assertGreater(rows[-1]["memory"]["pss_mib"], 0)
+
+    @unittest.skipUnless(WHISPER, "supply the Whisper model")
+    def test_experimental_fast_path_avoids_loads_and_retains_whisper_fallback(self):
+        from scripts.benchmark_vosk_fast_path import counters
+        binary = Path(__file__).resolve().parents[1] / "native/voice-worker/target/release/jarvis-voice"
+        for enabled, free in ((False, True), (True, True), (True, False)):
+            with self.subTest(enabled=enabled, free=free):
+                result = counters(binary, Path(FIXTURE), enabled, free, 2)
+                stats = result["final_stats"]
+                self.assertEqual(stats["whisper_loads"], 0 if enabled and free else 1)
+                self.assertEqual(stats["fast_commands"], 2 if enabled and free else 0)
+                actual = [e for row in result["results"][1:] for e in row["events"] if e["kind"] == "command"]
+                self.assertEqual([e["text"] for e in actual], ["ten meters", "ten meters"])
+                self.assertEqual([e.get("recognition_pass") for e in actual], ["vosk_fast" if free else "whisper"] * 2 if enabled else [None, None])
+
+    def test_repeated_background_quiet_wake_without_room_noise(self):
+        from scripts.benchmark_recognition_acceptance import audio_case, evaluate, run_case
+        config = copy.deepcopy(DEFAULTS)
+        config["privacy"]["onboarded"] = True
+        config["recognition"].update(model_path=MODEL, accurate=False)
+        config["activation"]["wake_phrase"] = "go forward"
+        argv, payload, env = native(config, "wake_word", Parser({"ten meters": "start recording"}).grammar(APPS))
+        case = {"repeat": 3, "segments": [
+            {"pcm": str(Path(FIXTURE).resolve())}, {"silence": 1.5},
+            {"pcm": str(Path(FIXTURE).resolve()), "reverse": True}, {"silence": 3.5}]}
+        audio, _ = audio_case(case, Path("."))
+        measured = run_case(Path(argv[0]), payload, env, audio)
+        self.assertIsNone(measured["error"])
+        result = evaluate(measured["events"], ["ten meters"] * 3, 3)
+        self.assertTrue(result["passed"], result)
+
     def test_service_selects_rust_and_accepts_its_command_without_dispatching_actions(self):
         from murmur.daemon import Service
         async def check():

@@ -348,7 +348,8 @@ class Service:
             self.stopping.set()
             return {"ok": True, "pid": os.getpid()}
         if op == "status":
-            return {"ok": True, "status": self.status()}
+            from .process_memory import snapshot
+            return {"ok": True, "status": self.status(), "pid": os.getpid(), "memory": snapshot()}
         if op == "config":
             return {"ok": True, "config": self.config}
         if op == "apps":
@@ -407,7 +408,7 @@ class Service:
             if self.replay.status()["state"] in ("on", "stopping") and (
                     c["recording"] != self.config["recording"] or any(
                         c["replay"][key] != self.config["replay"][key]
-                        for key in ("seconds", "game_audio", "microphone"))):
+                        for key in ("seconds", "game_audio", "microphone", "storage", "max_mb", "buffer_dir"))):
                 raise CommandError("Stop instant replay before changing capture settings")
             was_onboarded = self.config["privacy"]["onboarded"]
             self.config = await asyncio.to_thread(configuration.save, c)

@@ -15,10 +15,15 @@ video budget is about 60 MB per minute plus sound/container overhead. HEVC
 and AV1 usually offer better compression but need compatible graphics hardware
 and playback software. CPU H.264 is an explicit compatibility option.
 
-Replay keeps up to the requested history or 256 MiB of compressed video in
-RAM, whichever is smaller. Other process memory and in-flight/save buffers
-are additional. Saving completes the current second and can include up to
-one second after the request. Stop replay to release its history.
+Replay defaults to RAM, capped by history and the encoded-video budget
+(256 MiB by default). Other process and in-flight/save memory is additional.
+Explicit Disk mode continuously writes unsaved screen and selected audio to
+a private rolling buffer, including microphone audio when enabled. Writes
+follow bitrate (roughly 1–10 GB/hour; 8 Mbps is 3.6 GB/hour plus overhead).
+Stop deletes buffers; crash leftovers are cleaned on next replay start.
+Deletion is not secure erasure. Disk mode needs the included Rust helper and
+a local NTFS/ReFS disk; its byte cap includes pending and save-pinned files.
+Saving completes the current second and may include one later second.
 
 Settings/logs: %LOCALAPPDATA%\Jarvis
 Recordings: the folder you selected (default %USERPROFILE%\Videos\Jarvis).

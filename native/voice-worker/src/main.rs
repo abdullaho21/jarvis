@@ -1,4 +1,5 @@
 mod engine;
+mod history;
 mod inference;
 mod matching;
 mod on_demand;
@@ -24,6 +25,13 @@ struct NativeConfig {
     /// Absent: load it at startup and keep it for the worker's lifetime.
     #[serde(default)]
     whisper_idle_seconds: Option<f64>,
+    /// Experimental: exact, confident Vosk/free agreement can skip Whisper.
+    /// Off until the complete recognition acceptance corpus passes.
+    #[serde(default)]
+    vosk_fast_path: bool,
+    /// Experimental per-utterance feature reclamation; never enabled by controllers.
+    #[serde(default)]
+    vosk_finalize_utterances: bool,
     candidates: Vec<(String, String)>,
     wake_forms: Vec<String>,
     greetings: Vec<String>,
@@ -116,9 +124,17 @@ fn benchmark(payload: Payload, reader: &mut impl BufRead, engine_mode: bool) -> 
             text = transcriber.transcribe(&pcm)?;
         }
         if let Some(engine) = &mut engine {
-            engine.begin(request["session"].as_str().unwrap_or("command") == "command");
-            let mut padded = pcm.clone();
-            padded.resize((pcm.len() + 64000).div_ceil(960) * 960, 0);
+            let repeats = request
+                .get("repeat")
+                .map(|value| value.as_u64().ok_or("Invalid fixture repetition"))
+                .transpose()?
+                .unwrap_or(1);
+            if !(1..=20).contains(&repeats) || pcm.len() as u64 * repeats > 32000 * 60 {
+                return Err("Use 1–20 repetitions totaling at most 60 seconds".into());
+            }
+            engine.begin(request["session"].as_str().unwrap_or("command") == "command")?;
+            let mut padded = pcm.repeat(repeats as usize);
+            padded.resize((padded.len() + 64000).div_ceil(960) * 960, 0);
             for frame in padded.as_chunks::<960>().0 {
                 if let Some(result) = engine.feed(frame, worker::rms(frame) < 0.005)? {
                     let wake = result.kind == "wake";
@@ -140,9 +156,13 @@ fn benchmark(payload: Payload, reader: &mut impl BufRead, engine_mode: bool) -> 
         }
         let cpu = cpu_seconds();
         std::thread::sleep(std::time::Duration::from_secs_f64(settle));
+        // Explicit offline measurement only, applied equally to paired arms.
+        if request["trim_heap"] == true {
+            inference::trim();
+        }
         let settle_cpu = cpu_seconds() - cpu;
         emit(
-            json!({"event":"result","text":text,"events":events,"seconds":seconds,"decode_cpu_seconds":decode_cpu,"settle_cpu_seconds":settle_cpu,"memory":metrics()}),
+            json!({"event":"result","text":text,"events":events,"seconds":seconds,"decode_cpu_seconds":decode_cpu,"settle_cpu_seconds":settle_cpu,"memory":metrics(),"recognition_stats":engine.as_ref().map(engine::Engine::recognition_stats)}),
         )?;
     }
     Ok(())
@@ -186,13 +206,19 @@ fn run() -> Result<()> {
         libc::mallopt(libc::M_ARENA_MAX, 1);
     }
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args
-        .iter()
-        .any(|s| !["--transcribe", "--engine", "--match", "--version"].contains(&s.as_str()))
-        || args.len() > 1
+    if args.iter().any(|s| {
+        ![
+            "--transcribe",
+            "--engine",
+            "--decoder-history",
+            "--match",
+            "--version",
+        ]
+        .contains(&s.as_str())
+    }) || args.len() > 1
     {
         return Err(
-            "Use --transcribe, --engine, --match, --version, or no arguments for microphone worker"
+            "Use --transcribe, --engine, --decoder-history, --match, --version, or no arguments for microphone worker"
                 .into(),
         );
     }
@@ -221,6 +247,9 @@ fn run() -> Result<()> {
         .is_some_and(|s| !(1.0..=86400.0).contains(&s))
     {
         return Err("Invalid Whisper idle duration".into());
+    }
+    if args.first().is_some_and(|a| a == "--decoder-history") {
+        return history::run(payload, &mut reader);
     }
     if args
         .first()

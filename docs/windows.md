@@ -42,7 +42,7 @@ per-user Run entry, disabled by default.
 | Brightness | Laptop WMI or external-monitor DDC/CI; named, checked monitor identities |
 | Recording | DXGI adapter/output discovery and FFmpeg DDA capture |
 | System sound and microphone | WASAPI loopback and input, with optional mixing; no virtual cable required |
-| Replay | Three reusable private pipes; independent one-second encoded segments retained in RAM |
+| Replay | Three reusable private pipes; independent one-second segments in capped RAM or an opt-in Rust disk store |
 | Clip playback | Open the output folder and use the Windows default player |
 
 Windows can refuse focus/control of elevated or protected applications. Jarvis
@@ -74,13 +74,35 @@ Auto mode refuses an unknown display color state. Known SDR displays cannot be
 forced to HDR without enabling HDR in Windows. Final output is verified with
 ffprobe before publication; interrupted/failed staging files are retained.
 
-Replay retains the requested 10–600 seconds or **256 MiB of encoded history**,
-whichever fits first. This is not a whole-process RAM limit: models, encoder
-buffers, three in-flight segments and a concurrently saved snapshot are additional.
-Save waits for the current segment, so a clip can include up to one later second.
-Replay writes segment files only while saving a requested clip. Stop releases its
-history. A quiet system output is represented by timed silence; missing microphone
-frames and callback overflows remain errors.
+Replay defaults to **RAM**, retaining 10–600 seconds or the configured encoded
+history budget (default **256 MiB**), whichever fits first. In RAM mode, video
+files are written only after Save. Models, encoder buffers, three in-flight
+segments and a concurrently saved snapshot are additional memory. Save waits
+for the current segment and can include up to one later second.
+
+Explicit **Disk (continuous writes)** mode sends completed one-second segments
+to `jarvis-replay-store.exe`, a Rust helper. `replay.max_mb` (64–16384 MiB) caps
+all encoded files it owns, including pending arrivals and files pinned by a save.
+It evicts old unpinned history before writing; when a save/pending data occupies
+the budget or a disk write fails, capture stops with an error. Snapshots keep
+their files through rollover and a concurrent Stop. In-flight named-pipe segments,
+encoder buffers and the output clip remain outside this encoded-file cap.
+
+`replay.buffer_dir` optionally selects a dedicated directory; the default is
+`%LOCALAPPDATA%\Jarvis\replay-buffer`. The adapter applies a protected user-only,
+inheritable ACL; Rust also explicitly protects each directory and file before
+writing video. The helper refuses reparse points and requires a local NTFS/ReFS
+fixed/removable volume. Windows APIs cannot reliably detect third-party RAM disks
+that present themselves as fixed NTFS disks; choose a known physical disk.
+An exclusive lock protects active buffers, Stop removes their files, and the
+next replay start removes marked crash leftovers. Disk mode continuously writes
+unsaved screen and selected audio (including microphone audio when enabled),
+roughly **1–10 GB/hour** depending on bitrate; 8 Mbps is 3.6 GB/hour plus overhead.
+Deletion is not secure erasure; backups/snapshots may preserve data. Saved clips
+are separate from the buffer budget. RAM stays available as the privacy default.
+Stop replay before changing storage, directory, budget or capture settings.
+A quiet system output is represented by timed silence; missing microphone frames
+and callback overflows remain errors.
 
 ## Build locally
 
@@ -107,6 +129,7 @@ from Windows Python with the checkout installed or `src/` on `PYTHONPATH`:
 
 ```powershell
 python -m pip install --require-hashes -r packaging/windows/requirements-lock.txt
+python scripts/build_replay_store.py --test
 python scripts/build_windows.py --models C:\assets\models --tools C:\assets\ffmpeg\bin --ffmpeg-source C:\assets\FFmpeg-Corresponding-Source.tar.xz --extra-licenses C:\assets\licenses --output dist\windows
 makensis /DBUNDLE=dist\windows\frozen\Jarvis /DOUTPUT=dist\windows\Jarvis-0.2.0-Windows-x64-Setup.exe packaging\windows\installer.nsi
 ```

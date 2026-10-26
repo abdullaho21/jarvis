@@ -547,7 +547,11 @@ impl Service {
     pub async fn handle(&mut self, payload: &Value) -> Result<Value> {
         let op = payload["op"].as_str().ok_or("Unsupported operation")?;
         match op {
-            "status" => return Ok(json!({"ok":true,"status":self.status()})),
+            "status" => {
+                return Ok(
+                    json!({"ok":true,"status":self.status(),"pid":std::process::id(),"memory":crate::memory::snapshot(std::process::id())}),
+                )
+            }
             "config" => return Ok(json!({"ok":true,"config":self.config})),
             "commands" => return Ok(json!({"ok":true,"commands":policy::TABLES["REFERENCE"]})),
             "apps" => {
@@ -627,9 +631,16 @@ impl Service {
                 }
                 if (replay_active || self.pending_captures > 0)
                     && (c["recording"] != self.config["recording"]
-                        || ["seconds", "game_audio", "microphone"]
-                            .iter()
-                            .any(|key| c["replay"][key] != self.config["replay"][key]))
+                        || [
+                            "seconds",
+                            "game_audio",
+                            "microphone",
+                            "storage",
+                            "max_mb",
+                            "buffer_dir",
+                        ]
+                        .iter()
+                        .any(|key| c["replay"][key] != self.config["replay"][key]))
                 {
                     return err("Stop instant replay before changing capture settings");
                 }

@@ -189,7 +189,7 @@ pub fn run(payload: Payload, mut controls: Vec<u8>) -> Result<()> {
         None
     };
     if let Some(e) = &mut engine {
-        e.begin(listening);
+        e.begin(listening)?;
     }
     ready(engine.as_ref(), listening, deadline)?;
     let minimum = config["audio"]["vad_rms"]
@@ -233,7 +233,7 @@ pub fn run(payload: Payload, mut controls: Vec<u8>) -> Result<()> {
                 listening = false;
                 deadline = None;
                 settling = false;
-                engine.as_mut().unwrap().begin(false);
+                engine.as_mut().unwrap().begin(false)?;
                 cooldown = now() + 1.5;
                 continue;
             }
@@ -246,7 +246,7 @@ pub fn run(payload: Payload, mut controls: Vec<u8>) -> Result<()> {
             deadline = None;
             settling = false;
             quiet_frames = 0;
-            engine.as_mut().unwrap().begin(false);
+            engine.as_mut().unwrap().begin(false)?;
             emit(json!({"event":"timeout"}))?;
         }
         let next = deadline.map_or(last_frame + 3.0, |d| d.min(last_frame + 3.0));
@@ -323,7 +323,7 @@ pub fn run(payload: Payload, mut controls: Vec<u8>) -> Result<()> {
             engine
                 .as_mut()
                 .ok_or("Controls require a recognition engine")?
-                .begin(listening);
+                .begin(listening)?;
             ready(engine.as_ref(), listening, deadline)?;
         }
         if controls.len() > 4096 {
@@ -367,7 +367,7 @@ pub fn run(payload: Payload, mut controls: Vec<u8>) -> Result<()> {
             quiet_frames = if quiet { quiet_frames + 1 } else { 0 };
             if quiet_frames >= 7 {
                 settling = false;
-                engine.as_mut().unwrap().begin(true);
+                engine.as_mut().unwrap().begin(true)?;
             }
             continue;
         }
@@ -405,7 +405,7 @@ pub fn run(payload: Payload, mut controls: Vec<u8>) -> Result<()> {
         }
         listening = false;
         deadline = None;
-        engine.as_mut().unwrap().begin(false);
+        engine.as_mut().unwrap().begin(false)?;
         cooldown = now() + 1.5;
     }
     Ok(())

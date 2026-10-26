@@ -1,0 +1,359 @@
+# Memory-plan handoff — 2026-10-27
+
+Continue the existing [memory plan](memory-plan.md) to make Jarvis comfortable
+on an ordinary 8 GB Windows laptop. The user prefers Rust for substantial
+runtime work. Measurements and recognition quality are hard gates. **The full
+plan is not complete, and no Windows or whole-application release gate passes.**
+
+## Checkout and working rules
+
+- Workspace: `/home/silver/Documents/ChatGPT/New project`; canonical directory:
+  `/home/silver/Projects/jarvis`. These refer to the same checkout.
+- HEAD when this handoff was drafted: `62142a1` (`Record that load-cycle memory
+  growth is bounded`). The campaign then had uncommitted source, test and
+  evidence files. The user subsequently requested a local commit on
+  2026-10-27; inspect `git log` and `git status` for the current state. Preserve
+  any remaining changes. Git metadata is read-only in the normal sandbox, so
+  Git writes require approved execution. No push, PR, new chat or service
+  restart was performed by this chat.
+- Use the workspace alias as the command working directory and a non-login
+  shell (`login:false`) so shell startup does not change directories.
+- No `AGENTS.md` was found. No subagents or recurring jobs were created.
+- Use public supplied audio, fake capture and generated video for experiments.
+  Do not start a real microphone, desktop capture or installed service merely
+  to run a benchmark. Runtime models remain installed as before; experimental
+  downloads and diagnostic dependencies stay under ignored `build/` paths.
+- The current Vosk/small.en path remains the default. Internal flags
+  `native.vosk_fast_path` and `native.vosk_finalize_utterances` default false
+  and are omitted by normal controllers. Smaller Whisper profiles require
+  explicit experimental files. The separate KWS probe is not integrated.
+
+## Latest continuation and next implementation step
+
+Read [the model-alignment experiment](kws-alignment.md), then the earlier
+[reader/cache](kws-reader-caches.md), [pressure](kws-pressure-allocations.md) and
+[continuous timing](kws-continuous-diagnostics.md) reports. Do not repeat old
+matrices without a new change or unresolved question.
+
+1. A single optional Rust `align_chunk_ms=320` candidate derives its grid from
+   the pinned encoder's native 32 × 10 ms chunk shift. RMS 0.001, pre-roll
+   300 ms and hangover 1200 ms remain fixed. A bounded 21-frame original-audio
+   ring floors stream starts to that grid, slices its first frame exactly and
+   reports unique versus replayed context. Omitted alignment preserves the
+   previous gate. This changes only the isolated detector.
+2. A predeclared 288-case phase grid spans three supplied recordings, three
+   gains and 32 leading-quiet offsets. Saved ungated detects 253/288, original
+   gate 288/288 and aligned 287/288; no extras. Among 253 jointly detected
+   baseline/candidate wakes, alignment is exact in 252 and 300 ms earlier in
+   one. The original gate is later in 122/253, up to 300 ms. These perturbed
+   public files add timing coverage, not independent speakers.
+3. Alignment gains 34 ungated misses and loses no ungated successes, but loses
+   one wake caught by the original gate: `go-forward-0.1-1110`. Thus its
+   intended-label gate fails; the matrix exits 1. A separate whole/1.28 s/
+   1.32 s cropped diagnostic reproduces miss/miss/hit in both saved/current
+   ungated binaries. The intended labels stay positive and their recognition
+   summaries stay failed. Stream-start context sensitivity is reproduced
+   without gate execution; the precise native component is not attributed.
+4. Nineteen focused controls pass in all five arms, with 12 wakes and exact
+   aligned baseline trigger chunks. Both current unchanged-behavior controls
+   match saved ungated/original-gate chunks. Three fresh paced workers per arm
+   give aligned silence CPU 0.0148–0.0168% of one core and peak RSS
+   53.90–54.48 MiB. The original low-volume control returns to 2.07 s from
+   the old gate's 2.25 s, but that improvement does not excuse the new miss.
+5. The first driver attempt's incomplete evidence is preserved; it assumed
+   accounting fields absent from the old ungated protocol. A new-path restart
+   corrects that analysis compatibility and completes every fixed case.
+   Validation passes 18 Rust tests per normal/diagnostic variant (overlapping),
+   ten explicit Python tests and format/Clippy/package/compilation/diff checks.
+   Runtime source and binaries are preserved under
+   `build/memory-plan-kws/alignment-candidate/snapshot.json`. All earlier
+   snapshots stay intact; the parent binary remains byte-identical.
+6. Prior reader/cache and private cgroup findings remain valid at their stated
+   scope. Joining bounds reader lifetime but does not remove the glibc trend;
+   diagnostic malloc-cache disabling removes short in-use growth, with residual
+   RSS warming and no production tunable adopted. OOM raw exits 0/1/1 and
+   recognition failures remain explicit. No parent/pressure matrix is repeated
+   solely for a detector candidate already failing recognition acceptance.
+
+**Next:** design a context-preserving detector path or another wake candidate
+with a declared protocol, then measure matched intended labels, input trigger
+times, silence CPU and memory. Chunk alignment alone is insufficient; do not
+tune pre-roll/gain/thresholds to the failed file. Keep the new miss, expanded
+ungated misses, prior timing failures, RMS 0.005 endpoint failure and small.en
+memory failure visible. Acquire the missing acoustic/platform evidence before
+choosing and integrating an architecture. Longer default-policy trends may
+justify native allocation stacks; no leak-freedom/plateau claim exists.
+
+The [current six-step status](memory-plan.md#current-position--2026-10-27)
+separates implemented foundations from acceptance. Significant work remains:
+full corpus, regression resolution and candidate choice, strict Linux replay
+byte bounds, integration, GTCRN/real capture, combined workloads, Windows/8 GB
+pressure, and three sequential 24-hour soaks. Final soaks alone require at
+least 72 hours after candidate readiness; there is no honest overall percentage
+or ETA while these gates remain open.
+
+Actual custom-name positives, confusables, speakers/accents, music/game/dialogue
+negatives, GTCRN interaction, real capture, Windows hardware, pressure, combined
+budgets and full-duration soak are still missing. Repeated fixtures do not add
+speakers or establish a general false-alarm rate. Do not integrate or promote
+either probe on the strength of these results.
+
+## Work completed so far
+
+| Area | Implemented and measured | Limit or adoption state |
+| --- | --- | --- |
+| Process accounting | Linux RSS/PSS and Windows private working set/commit on explicit status/doctor; application sampler, recognition gate and soak runner | Isolated Linux whole-app baseline 176.84 MiB RSS exceeds the 150 MiB replay-off target; Windows and complete combined workloads remain open |
+| Missed wake | Rust/Python wake decoder reset when background hangover exhausts; repeated background/quiet/wake fixture checks pass | Full real acoustic corpus still required |
+| Disk replay | Rust bounded private replay store, opt-in disk mode, Windows RAM cap, Linux/Windows adapters and packaging; synthetic retained-video buffer layer about 266 → 27.5 MiB RSS | Excludes real capture/voice/controller/UI; Linux recorder disk monitor can overshoot its quota between polls; strict Linux cap remains open. 2026-10-27: Linux RSS stop removed (256 MiB default was below the live recorder's RSS); Linux disk budgets below 512 MiB refused (GSR's 256 MiB files) |
+| Vosk history attribution | Separate wake/command/free probes with all three decoders resident; finalizing before reset reduces retained history | Does not explain the entire prior live RSS floor or prove a leak |
+| Vosk fast path | Exact, complete-confidence grammar/free agreement can skip Whisper | Default false: forced cold fallback p95 regressed to about 2696 ms despite much lower exact-command peaks |
+| Vosk finalization | Default-disabled real Engine experiment at utterance boundaries; 32-cycle floor growth about 45 → 2.7 MiB; 384/384 probe commands | Full corpus, platform and soak gates open; command peaks still over 500 MiB with small.en |
+| Smaller Rust Whisper | Strict tiny/base/small profiles, generic caches and graph validation; small's 55 saved tensors remain byte-identical | Small remains default. Tiny: 63/63 reference transcripts, 9/9 paced commands, 279–282 MiB worker peak. Base: 45/63 parity, unresolved noisy/truncated encoder numerical differences; not validated |
+| Configurable KWS | Rust replay/ownership/pacing, pinned sherpa-onnx C ABI and optional bounded quiet gate; no Python in inference | Optional gate: 53.57–54.59 MiB RSS, 33/33 focused wakes, 0.0132–0.0150% silence CPU; low-volume trigger delayed 180 ms; no integration |
+| Model-aligned KWS | Optional bounded original-audio alignment, 288 fixed phase cases, five-arm focused controls and whole/cropped miss reproduction | 287/288 wakes versus original gate's 288/288; matched ungated triggers no later, silence CPU passes; missed wake blocks acceptance |
+| Buffered handoff | Separate Rust parent retains audio through detector/command-worker overlap; existing Vosk/free/matcher policy preserved; 18/18 fixture cases, byte-identical buffers | Explicit file endpoint only; small.en combined worker peak 594–617 MiB fails target; tiny/Vosk alternatives do not establish full acoustic, application or Windows acceptance |
+| Reader/cache attribution | Owned cancellable readers, full-queue/partial-line tests, 384 detector requests and four matched eight-cycle cache/lifetime arms | Malloc cache controls remove short in-use growth but RSS warms; no tunables adopted, no full plateau/leak freedom or release sign-off |
+| Allocation and pressure recovery | Opt-in Rust allocator accounting, 128-request/32-cycle attribution and private cgroup OOM recovery, with raw failures retained | Later cache controls explain short in-use growth; native source stacks, arbitrary/app-wide/Windows pressure and full soak open |
+| Continuous input and attribution | Multiple windows in one file, bounded busy/timeout/recovery, 36 exact cropped timing reproductions and per-process/report-retention floor controls | Timing remains failed; residual in-use trends, acoustic, pressure, application, Windows and soak gates open |
+| Repeated handoff/endpoint | Resident detector, fresh command-worker teardown, matched quiet endpoints, byte-identical slices, timeout/overflow checks and ten-cycle floor evidence | RMS 0.005 low-volume command fails; RMS 0.001 candidate passes seven controls; ten-cycle floor grows 0.418 MiB; later continuous controls do not establish full soak or application acceptance |
+
+Detailed evidence: [measurement gates](memory-measurement.md),
+[recording/storage](recording.md), [history attribution](vosk-decoder-history.md),
+[fast path](vosk-fast-path.md), [finalization](vosk-finalization.md),
+[Whisper profiles](whisper-model-experiments.md), [KWS](kws-experiment.md),
+[quiet gate and handoff](kws-quiet-gate.md), [cycles and endpoints](kws-handoff-cycles.md).
+Raw artifacts are under `docs/benchmarks/`.
+
+The combined targets are replay-off waiting ≤150 MiB, replay-on waiting
+≤300 MiB and commands ≤400 MiB for **all** Jarvis processes, with no recognition
+regression. The soak requirement is three sequential full 24-hour runs; no
+such campaign has completed. Do not infer these gates from worker-only RSS.
+
+## Latest KWS result and deliberate failures
+
+- Model-derived alignment: original gate detects 288/288 phase wakes; aligned
+  detects 287/288 and ungated 253/288. No extras. All 253 jointly detected
+  ungated/aligned wakes are no later, but one wake caught by the original gate
+  is lost. Both ungated binaries reproduce miss/miss/hit for whole input and
+  crops at 1.28/1.32 s. The fixed matrix exits 1; the diagnostic's exit 0 is
+  context reproduction only. No recognition or architecture sign-off follows.
+- Current omitted-alignment and ungated controls match 19 saved focused cases
+  exactly; aligned also passes them, including the formerly delayed low-volume
+  wake. Three paced repetitions retain low silence CPU. The failing expanded
+  phase grid takes precedence over that narrow focused success.
+
+- Reader/cache follow-up: all 384 detector wakes/trigger chunks and 32 parent
+  commands/buffers match across controlled arms. Joining does not remove the
+  glibc in-use trend; disabling the malloc tcache removes that short trend
+  in both processes, while stack-cache disabling does not. Residual RSS warms
+  and all full-duration/native-origin/release claims remain unproven.
+- Teardown regression controls: 8/8 continuous and 3/3 private cgroup controls
+  pass with exact join counts and byte-identical source slices. Raw OOM failures
+  and the corrected successful/aborted/fault summaries remain visible.
+
+- Allocation ownership: 256 detector requests match exact trigger chunks across
+  normal/counter arms; 32/32 parent commands and buffers pass. Requested Rust
+  live bytes/blocks show no accumulating-object trend; glibc in-use still rises.
+- Private cgroup pressure: 3/3 lifecycle controls, kernel OOM kills 0/1/2 and
+  raw exits 0/1/1; three submitted slices match. Both OOM recognition gates
+  remain false. No arbitrary-victim/full-app/Windows pressure sign-off.
+
+- Continuous-file extension: 8/8 lifecycle controls, seven expected commands
+  across 11 accepted windows and 7/7 byte-identical submitted slices. The
+  three-window tiny.en control peaks at 335.93 MiB for the reduced worker set.
+- Timing diagnosis: labels match in 36/36 fixed variants across three supplied
+  recordings, but 18 have later triggers (up to 270 ms); exit 1 is preserved.
+  Cropped ungated controls reproduce 36/36 exact gated trigger chunks.
+- Floor attribution: 16/16 handoff commands and eight detector-only requests
+  pass. All released RSS growth is in the parent in these controls; residual
+  parent/detector in-use heap increases remain unresolved.
+
+- Quiet-gate follow-up at 0.25: 40/40 focused cases and 33/33 wakes in each
+  baseline/gated arm; the paced subset is 21/21 wakes per arm. No extra
+  triggers. Current ungated code matches saved-baseline trigger chunks exactly.
+  Standby CPU passes, but low-volume trigger-time nonregression fails (+180 ms).
+- Buffered handoff: 18/18 cases, 15/15 byte-identical triggered buffers.
+  Combined small.en RSS fails 400 MiB; every whole-application gate stays false.
+- Original ungated primary threshold 0.25: 51/51 focused paced/unpaced cases, 39/39 expected
+  wakes, no extra triggers. The paced subset is three fresh workers, 15 wakes.
+- All 147 unpaced cases match upstream Python API labels and exact input
+  trigger chunks, **including upstream's misses**.
+- At threshold 0.5, 9/24 intended wakes are missed; at 0.75, 12/24 are missed.
+  The complete matrix correctly exits **1**. This is not an unexplained code
+  test failure and must not be normalized into a pass.
+- Native C API/ONNX Runtime inference is not a pure Rust neural-network
+  implementation. Rust owns configuration, streaming, pacing and resource
+  lifetimes; the small C shim uses the unmodified pinned header for ABI layout.
+- Jarvis and Hey Jarvis tokenize successfully, but have only absent-keyword
+  negative controls. **There are no positive recordings of those names.**
+- The official archive has no publisher digest. Provenance records a local
+  SHA-256 content pin, not a publisher-verified checksum.
+
+## Build, models and diagnostic environment
+
+Run from the workspace with the existing cached toolchain:
+
+```sh
+export PATH="$PWD/build/refactor-review/rustup/toolchains/1.99.0-x86_64-unknown-linux-gnu/bin:$PATH"
+export CARGO_HOME="$PWD/build/refactor-review/cargo"
+export RUSTUP_HOME="$PWD/build/refactor-review/rustup"
+cargo test --offline --locked --manifest-path native/kws-probe/Cargo.toml
+cargo clippy --offline --locked --all-targets --manifest-path native/kws-probe/Cargo.toml -- -D warnings
+```
+
+Python is `.venv/bin/python` (3.14). Useful existing assets:
+
+| Asset | Location |
+| --- | --- |
+| Public s16le/16 kHz mono fixture | `build/refactor-review/goforward.raw` |
+| KWS English int8 model, BPE, upstream public WAVs | `build/memory-plan-kws/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/` |
+| Native KWS C API and adjacent ONNX Runtime | `.venv/lib/python3.14/site-packages/sherpa_onnx/lib/libsherpa-onnx-c-api.so` |
+| KWS configs, keyword files and generated cases | `build/memory-plan-kws/` and its `matrix/` directory |
+| Development-only SentencePiece | `build/memory-plan-kws/python/`; use `PYTHONPATH` only for keyword preparation |
+| Vosk small English | `/home/silver/.local/share/murmur/models/vosk-model-small-en-us-0.15` |
+| Whisper small English | `/home/silver/.local/share/murmur/models/sherpa-onnx-whisper-small.en` |
+| Experimental Whisper tiny/base | `build/memory-plan-models/models/sherpa-onnx-whisper-tiny.en/` and `sherpa-onnx-whisper-base.en/` |
+| Workspace-only ORT 1.31 numerical diagnostics | `build/memory-plan-models/python/`; not the KWS inference library or a production dependency |
+
+All relative paths above are relative to this checkout. The public fixture
+SHA-256 is
+`f15c60ec54059d8b66e410d0064945a0b0a04ea56e1ddca1958e493c0cf70e71`.
+`/tmp` is tmpfs on this host; disk replay experiments use the Btrfs workspace.
+
+Latest binary SHA-256 values:
+
+```text
+saved ungated jarvis-kws-probe baseline:
+3bead979c897d0c14b9ce2c3394239ec77dc929b0f43ca8ea1eb76d531dfd657
+jarvis-kws-probe (prior quiet gate, preserved gate-candidate copy):
+d6b2ddef281e3edc464271f9d01499c07465e7efb3bbb554be1e54504637716f
+jarvis-kws-handoff-probe (initial file-endpoint experiment, saved handoff-candidate):
+42d2a534cacca9f2d383e37b41c6285945e9c74518e1f0a956a5d48b554d5dc7
+jarvis-kws-handoff-probe (prior cycles, saved handoff-cycles-preserved):
+dcc3191ad0b0c38f9f22f04ae44bdcef833ecd6d4d69849c0a7a562efe1be9f6
+jarvis-kws-probe (prior heap diagnostic; continuous-candidate copy):
+a233211113d7a5465b04589746f95f5673e6f7bf1343168bf750d40369ffd7de
+jarvis-kws-handoff-probe (prior continuous input, continuous-candidate copy):
+9b2e4402b6ebb95b9e403127da98ff39d61e9b0355af4e5e6e3ad183177b74d2
+jarvis-kws-probe (prior reader/cache normal build, saved reader-cache-candidate):
+df6d5df9c716c5f93ae2c02367546616b2d1d093f108965fc5be51a9aee331c2
+jarvis-kws-probe (current optional alignment build, saved alignment-candidate):
+3f0030314b153a89bac0c96163e668ef838850b93daf22f322929d96623bbe51
+jarvis-kws-handoff-probe (prior fault recovery, pressure-allocation-candidate):
+8691d2bef0fad8d59e5a8772f6e0ba01721ea0afffa9e3d777350c876c802ecf
+allocation-build/release/jarvis-kws-probe (prior reader/cache counter; not rebuilt for alignment):
+3422f23742f3328637dc6cb2ee76041e143c8b06e57a77ee481fc4e9c90b659f
+jarvis-kws-handoff-probe (prior Rust counter, pressure-allocation-candidate):
+423bb8bf96d2789352a3cc066a0eb6cc3b4ad9812127b081adf4dcce26235e84
+jarvis-kws-handoff-probe (current owned reader, normal build):
+2f1843d9a6c0224219354c0b39364b9b08b553b33aabd972fad51f5fe3fa4791
+allocation-build/release/jarvis-kws-handoff-probe (current owned reader/counter):
+132fb2b719b9cf1ccb38121a2b1d91c5df0f9baeb72b1a8ca68b89baa497e884
+src/murmur/bin/jarvis-voice (also build/memory-plan-models/jarvis-voice):
+212ff8655e303b55f0a70f902753d0ab6f87031aa3c71cd40306ddf5cf8d9844
+native/whisper-recognizer/target/release/jarvis-whisper:
+8915a1cfb58d7faec35f4409dd7cb1da17b55191f38f511129caf53e06c087b1
+```
+
+The KWS probe lives at `native/kws-probe/target/release/jarvis-kws-probe`.
+Keep measured hashes tied to the actual executables used; rebuilding after
+changing code must not silently replace the benchmark baseline.
+
+## Validation at handoff
+
+[Alignment validation](benchmarks/kws-alignment-validation-2026-10-27.json)
+records 18 passing Rust tests per build variant (overlapping), ten passing
+explicit Python tests without skips, and passing format, all-feature/all-target
+Clippy, compilation, packaging and diff checks. It verifies the source archive,
+both normal binaries, 971 raw input-hash uses and 313 aligned accounting reports.
+The matrix's exit 1 and intended-label/strict timing-identity failures remain
+explicit. The six-row cropped diagnostic retains positive labels and failed
+recognition while reproducing the predicted context behavior. No full Python
+suite, Windows, parent/pressure matrix or full-duration soak is newly claimed.
+
+[Reader/cache validation](benchmarks/kws-reader-cache-validation-2026-10-26.json)
+records 15 passing Rust tests per build variant (same overlapping tests), nine
+passing explicit Python tests with no skips, and passing formatting, all-feature/
+all-target Clippy, compilation, package and diff checks. All 42 submitted
+buffers and saved source/binary hashes were rechecked. Cache comparisons,
+eight continuous controls and three confined cgroup controls pass. OOM exits
+and recognition failures remain explicit. All experiment processes and transient
+units exited; the full Python suite was not rerun.
+
+
+[Allocation/pressure validation](benchmarks/kws-pressure-allocation-validation-2026-10-26.json)
+records 12 passing Rust tests in each build variant (same tests, not additive),
+nine passing explicit Python tests with no skips, and passing formatting,
+all-feature/all-target Clippy, compilation, package and diff checks. All 35
+allocation/pressure buffers and saved binary/source hashes were rechecked.
+Three synthetic fault scenarios and three actual cgroup lifecycle controls
+pass. OOM raw exits 1 and failed recognition gates remain deliberate. The full
+Python suite was not rerun. All experiment processes and transient units exited.
+
+
+[Continuous-input validation](benchmarks/kws-continuous-validation-2026-10-26.json)
+records 12 passing Rust tests and eight passing explicit Python tests (no
+skips), passing formatting/Clippy/package/compilation checks; eight lifecycle controls; 16 handoff floor cycles and eight detector-only
+requests. Timing diagnosis deliberately exits 1 (18 later gated variants),
+with all 36 cropped controls reproducing exact gated trigger chunks. The full
+Python suite was not rerun for these isolated changes. The previous acoustic
+and small.en memory failures remain unchanged.
+
+
+[Cycles/endpoint validation](benchmarks/kws-handoff-cycles-validation-2026-10-26.json)
+records ten Rust unit tests, seven explicit Python tests, passing format/Clippy/
+package/compilation checks, the matrix's expected acoustic exit 1, seven passing
+focused diagnostic controls and ten passing floor cycles. The full offline
+suite was not rerun. Exact binary/source and raw-evidence hashes are included.
+
+[Quiet-gate/handoff validation](benchmarks/kws-quiet-gate-validation-2026-10-26.json):
+
+- Eight Rust unit tests and seven explicit Python probe/model/protocol tests
+  pass. Formatting, all-target Clippy with warnings denied, offline locked
+  release builds, package inclusion/exclusion, Python compilation and diff
+  checks pass. Every saved handoff buffer and measured executable/source hash
+  was rechecked. The old full suite was not rerun for these isolated changes.
+- The quiet-gate script exits 0 for label/default-trigger equivalence; the
+  separate low-volume trigger-time gate is false. The handoff script exits 0
+  for its 18 fixture cases; its small.en memory target is false. No whole-app,
+  full acoustic, Windows or soak gate passes.
+
+[Prior full-suite validation](benchmarks/kws-validation-2026-10-26.json):
+
+- Full offline Python suite: **359 total, 322 passed, 37 explicitly skipped**.
+- Explicit KWS model/protocol suite: **4 passed**, including native library
+  maps confirming sherpa/ORT are loaded and Python is not.
+- New probe Rust unit tests: **3 passed**. Format check and all-target Clippy
+  with warnings denied pass. Header/license/Cargo source-package inclusion,
+  probe target exclusion, Python compilation and diff checks pass.
+- The prior Whisper phase records **60 passing selected voice/model tests**
+  and **34 Rust tests** separately in its validation artifact. These were not
+  all rerun for the KWS-only change; do not add overlapping counts together.
+- The default sandbox blocks local Unix sockets used by existing daemon and
+  controller tests. The initial restricted run was interrupted; rerunning
+  with temporary local-socket access passed in about 12 seconds. Long paced
+  benchmarks also used approved extended execution to avoid premature
+  launcher termination. No automatic approval rejection remains unresolved.
+- No experiment or test session is left running by this campaign.
+
+Reproduction commands for the model matrix and model-test environment are in
+[the KWS report](kws-experiment.md#reproduce-with-already-supplied-assets).
+Do not repeat large benchmarks after passing checks without a new change or
+an unresolved question. Preserve expected nonzero acoustic-gate results.
+
+## Resume prompt
+
+> Continue the Jarvis memory plan from docs/memory-plan-handoff.md. Preserve
+> all uncommitted work, production defaults and saved baselines. Read
+> docs/kws-alignment.md: model-derived 320 ms alignment removes later triggers
+> for 253 jointly detected ungated/candidate phase cases, but misses one wake
+> caught by the original gate. Keep the 287/288 candidate failure and 35
+> expanded ungated misses visible. Exact original/cropped inputs reproduce
+> native stream-context sensitivity without gate execution. Do not tune to
+> the failed public file; design any next context-preserving candidate with
+> a declared recognition/timing/CPU/memory protocol. Prior reader/cache and
+> OOM evidence remains scoped; no allocator tunable is adopted. Continue
+> candidate selection and missing corpus/platform evidence, then integration,
+> whole-app/Windows/pressure and three sequential 24-hour soaks. Strict Linux
+> replay byte bounds also remain open. Do not start real capture, repeat
+> unchanged matrices, or claim full acceptance from public-file controls.

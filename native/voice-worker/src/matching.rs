@@ -47,6 +47,25 @@ pub struct Matcher {
 }
 
 impl Matcher {
+    /// A fast path must use whole-phrase agreement, never a fuzzy match/window
+    /// score (a substring can score 1.0). Retain the free decoder as a veto.
+    pub fn confident_exact(&self, strict: &str, confidence: Option<f64>, heard: &str) -> bool {
+        let Some(confidence) = confidence else {
+            return false;
+        };
+        if !confidence.is_finite()
+            || !(0.98..=1.0).contains(&confidence)
+            || strict.contains("[unk]")
+            || jarvis_phrases::brightness_like(strict)
+            || !self.accepts(strict)
+        {
+            return false;
+        }
+        let strict = wording(strict, &self.prefixes, &self.suffixes);
+        !strict.is_empty()
+            && self.intent(&strict).is_some()
+            && strict == wording(heard, &self.prefixes, &self.suffixes)
+    }
     /// Strict grammar and free speech must agree, unless the latter clears the
     /// same 0.9 override threshold as the Python worker.
     pub fn choose(
@@ -343,6 +362,44 @@ mod tests {
         assert_eq!(result.confidence, Some(1.0));
         assert_eq!(result.min_word_posterior, Some(0.7));
         assert!(!result.closest_match);
+    }
+    #[test]
+    fn fast_path_requires_complete_whole_phrase_agreement() {
+        let mut m = command_matcher();
+        assert!(m.confident_exact("launch discord", Some(0.98), "launch discord"));
+        for confidence in [
+            None,
+            Some(0.979),
+            Some(1.01),
+            Some(f64::NAN),
+            Some(f64::INFINITY),
+        ] {
+            assert!(!m.confident_exact("launch discord", confidence, "launch discord"));
+        }
+        for heard in [
+            "",
+            "launch deadlock",
+            "do not launch discord",
+            "launch discord tomorrow",
+            "i said launch discord",
+        ] {
+            assert!(
+                !m.confident_exact("launch discord", Some(1.0), heard),
+                "{heard}"
+            );
+        }
+        assert!(!m.confident_exact("launch [unk]", Some(1.0), "launch [unk]"));
+        m.prefixes.push("could you".into());
+        m.suffixes.push("please".into());
+        assert!(m.confident_exact(
+            "launch discord",
+            Some(0.999),
+            "could you launch discord please"
+        ));
+        let brightness = "set brightness to fifty percent";
+        m.phrases.insert(brightness.into());
+        m.candidates.push((brightness.into(), "brightness".into()));
+        assert!(!m.confident_exact(brightness, Some(1.0), brightness));
     }
     #[test]
     fn python_sequence_matcher_tie_breaks() {

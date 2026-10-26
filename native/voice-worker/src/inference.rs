@@ -125,6 +125,15 @@ impl Decoder {
     pub fn reset(&self) {
         unsafe { (self.model.api.reset)(self.ptr) };
     }
+    pub fn clear(&self, finalize: bool) -> Result<()> {
+        if finalize {
+            // Discard this hypothesis. Quiet/timeout/reset boundaries must
+            // never turn background speech into a dispatched command.
+            self.result(true)?;
+        }
+        self.reset();
+        Ok(())
+    }
 }
 impl Drop for Decoder {
     fn drop(&mut self) {

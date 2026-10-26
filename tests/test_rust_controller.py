@@ -109,6 +109,9 @@ class ControllerPolicyTests(unittest.TestCase):
                                       ("activation", "confidence", [False, -1, 0, .5, 1, 2]),
                                       ("recording", "fps", [True, 0, 1, 30.0, 60, 61]),
                                       ("replay", "seconds", [True, 9, 10, 600, 601]),
+                                      ("replay", "storage", ["ram", "disk", "auto", None]),
+                                      ("replay", "max_mb", [True, 63, 64, 256.0, 16384, 16385]),
+                                      ("replay", "buffer_dir", [None, "a\0b", "", "/tmp/private"]),
                                       ("recognition", "noise_suppression", [0, "yes", None, False, True])]:
             cases += [{section: {key: v}} for v in values]
         results = policies([{"op": "validate", "config": c} for c in cases])
@@ -155,7 +158,11 @@ class ControllerPolicyTests(unittest.TestCase):
 class Harness:
     def __init__(self, *, onboarded=False, dry_run=True, config_patch=None, accurate=False,
                  real_worker=None, real_library=None, real_model=None, pcm=None, controller_argv=None, **environment):
-        self.directory = tempfile.TemporaryDirectory(prefix="jarvis-controller-")
+        parent = None
+        if (config_patch or {}).get("replay", {}).get("storage") == "disk":
+            parent = ROOT / "build/replay-storage/test-tmp"
+            parent.mkdir(parents=True, exist_ok=True)
+        self.directory = tempfile.TemporaryDirectory(prefix="jarvis-controller-", dir=parent)
         self.root = Path(self.directory.name)
         self.socket = self.root / "ipc/control.sock"
         self.config_path = self.root / "config.json"
@@ -261,6 +268,21 @@ class ControllerServiceTests(unittest.TestCase):
         self.assertNotEqual(duplicate.returncode, 0)
         self.assertIn("already running", duplicate.stderr)
         self.assertTrue(h.rpc("status")["ok"])
+
+    def test_status_and_doctor_include_owned_worker_memory(self):
+        h = self.start(onboarded=True)
+        h.wait(lambda: h.status()["engine"] is not None)
+        response = h.rpc("status")
+        self.assertEqual(response["pid"], h.process.pid)
+        memory = response["memory"]
+        self.assertTrue(memory["complete"])
+        self.assertIn(h.events("voice")[0]["pid"], [row["pid"] for row in memory["processes"]])
+        for key in ("rss_bytes", "pss_bytes"):
+            self.assertEqual(memory["totals"][key], sum(row[key] for row in memory["processes"]))
+        cli = ROOT / "native/cli/target/release/jarvis"
+        if cli.is_file():
+            result = subprocess.run([str(cli), "doctor"], env=h.env, capture_output=True, text=True, timeout=15, check=True)
+            self.assertEqual(json.loads(result.stdout)["memory"]["roots"], [h.process.pid])
 
     def test_configuration_is_atomic_private_and_restarts_voice_after_consent(self):
         h = self.start()
@@ -444,6 +466,87 @@ class ControllerServiceTests(unittest.TestCase):
         self.assertFalse(h.rpc("save_config", config=changed)["ok"])
         self.assertTrue(h.rpc("replay_stop")["ok"])
         self.assertEqual(h.status()["replay"]["state"], "off")
+
+    def test_disk_replay_is_private_and_saved_clips_survive_buffer_cleanup(self):
+        h = self.start(dry_run=False, config_patch={"replay": {"storage": "disk", "max_mb": 512}})
+        self.assertTrue(h.rpc("replay_start")["ok"])
+        h.wait(lambda: (h.socket.parent / "replay.sock").exists())
+        argv = next(e["args"] for e in h.events("gpu-screen-recorder") if "-ipc" in e["args"])
+        self.assertEqual(argv[argv.index("-replay-storage") + 1], "disk")
+        buffer = Path(argv[argv.index("-o") + 1])
+        self.assertEqual(buffer.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(Path(argv[argv.index("-ro") + 1]), h.root / "videos")
+        self.assertTrue(h.rpc("replay_save")["ok"])
+        clip = Path(h.status()["replay"]["file"])
+        for key, value in (("storage", "ram"), ("max_mb", 1024), ("buffer_dir", str(h.root / "other"))):
+            changed = h.rpc("config")["config"]
+            changed["replay"][key] = value
+            self.assertFalse(h.rpc("save_config", config=changed)["ok"])
+        self.assertTrue(h.rpc("replay_stop")["ok"])
+        self.assertFalse(buffer.exists())
+        self.assertTrue(clip.exists())
+
+    def test_disk_budget_and_write_failure_stop_only_the_owned_recorder(self):
+        # The fake buffer file is sparse, so this needs no real disk space.
+        for environment, expected in (({"MURMUR_TEST_REPLAY_BYTES": str(513 * 1024**2)}, "size budget"),
+                                      ({"MURMUR_TEST_REPLAY_WRITE_ERROR": "1"}, "could not write")):
+            with self.subTest(environment=environment):
+                h = self.start(dry_run=False, config_patch={"replay": {"storage": "disk", "max_mb": 512}}, **environment)
+                self.assertTrue(h.rpc("replay_start")["ok"])
+                h.wait(lambda: h.status()["replay"]["state"] == "error")
+                self.assertIn(expected, h.status()["replay"]["message"])
+                event = next(e for e in h.events("gpu-screen-recorder") if "-ipc" in e["args"])
+                self.assertTrue(exited(event["pid"]))
+                self.assertEqual(list((h.root / "data/murmur/replay-buffer").glob("session-*")), [])
+
+    def test_disk_budget_holds_a_full_recorder_file_and_refuses_smaller_budgets(self):
+        # GSR fills a 256 MiB file (overshooting by its last packet) before it
+        # can remove anything, so 512 MiB must keep running while 256 cannot.
+        h = self.start(dry_run=False, config_patch={"replay": {"storage": "disk", "max_mb": 512}},
+                       MURMUR_TEST_REPLAY_BYTES=str(257 * 1024**2))
+        self.assertTrue(h.rpc("replay_start")["ok"])
+        h.wait(lambda: (h.socket.parent / "replay.sock").exists())
+        time.sleep(1)
+        self.assertEqual(h.status()["replay"]["state"], "on")
+        self.assertTrue(h.rpc("replay_stop")["ok"])
+        small = self.start(dry_run=False, config_patch={"replay": {"storage": "disk", "max_mb": 256}})
+        response = small.rpc("replay_start")
+        self.assertFalse(response["ok"])
+        self.assertIn("at least 512 MiB", response["error"])
+        self.assertFalse(any("-ipc" in e["args"] for e in small.events("gpu-screen-recorder")))
+        self.assertFalse((small.root / "data/murmur/replay-buffer").exists())
+
+    def test_disk_replay_cleans_crash_leftovers_on_next_start(self):
+        h = self.start(dry_run=False, config_patch={"replay": {"storage": "disk", "max_mb": 512}})
+        self.assertTrue(h.rpc("replay_start")["ok"])
+        h.wait(lambda: (h.socket.parent / "replay.sock").exists())
+        event = next(e for e in h.events("gpu-screen-recorder") if "-ipc" in e["args"])
+        buffer = Path(event["args"][event["args"].index("-o") + 1])
+        h.process.kill()
+        h.process.wait(timeout=5)
+        deadline = time.monotonic() + 5
+        while not exited(event["pid"]) and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertTrue(exited(event["pid"]))
+        self.assertTrue(buffer.exists())
+        h.socket.unlink(missing_ok=True)
+        h.process = subprocess.Popen([str(BINARY)], env=h.env, stdout=h.output, stderr=h.output)
+        h.wait(lambda: h.socket.exists())
+        self.assertTrue(h.rpc("replay_start")["ok"])
+        self.assertFalse(buffer.exists())
+        self.assertTrue(h.rpc("replay_stop")["ok"])
+
+    def test_ram_replay_is_not_stopped_by_recorder_memory(self):
+        # GSR has no RAM byte cap and its RSS includes encoder overhead, so an
+        # RSS limit would end replay rather than shorten it.
+        h = self.start(dry_run=False, config_patch={"replay": {"max_mb": 64}},
+                       MURMUR_TEST_REPLAY_RAM_BYTES=str(65 * 1024**2))
+        self.assertTrue(h.rpc("replay_start")["ok"])
+        h.wait(lambda: (h.socket.parent / "replay.sock").exists())
+        time.sleep(1)
+        self.assertEqual(h.status()["replay"]["state"], "on")
+        self.assertIn("in memory", h.status()["replay"]["message"])
+        self.assertTrue(h.rpc("replay_stop")["ok"])
 
     def test_status_and_mute_remain_responsive_during_video_verification(self):
         h = self.start(onboarded=True, dry_run=False, MURMUR_TEST_VERIFY_DELAY=".7")
