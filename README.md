@@ -36,7 +36,37 @@ Speech maps to allowlisted actions. It cannot run arbitrary shell commands.
 Audio and transcripts are not saved by voice recognition. Screen recordings,
 including optional microphone tracks, are separate deliberate user output.
 
-## Install from this checkout
+## Install on Arch Linux in one line
+
+On Arch Linux, CachyOS or another Arch-based system, run as your normal user:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/abdullaho21/jarvis/main/install.sh | bash
+```
+
+[`install.sh`](install.sh) installs the missing system packages with pacman
+(asking for your password), downloads Jarvis into `~/.local/share/jarvis`,
+builds the Rust voice worker, CLI and controller, downloads and verifies the
+voice models (about 680 MB), and adds a Jarvis app launcher, a `jarvis`
+command and a disabled user service. It does not edit Hyprland. A first
+install took about seven minutes in a clean Arch container. Run the same line
+again to update.
+
+Options go after `bash -s --`, for example `... | bash -s -- --gpu-recorder`:
+
+| Option | Effect |
+| --- | --- |
+| `--gpu-recorder` | Also install `gpu-screen-recorder` for GPU formats, HDR and instant replay. Review its privileged capture helper in [recording setup](docs/recording.md) first. |
+| `--basic-models` | Download only the 40 MB wake model; commands are less accurate. |
+| `--python-only` | Skip the Rust builds and use the Python worker and client. |
+| `--uninstall` | Remove Jarvis; settings, models and recordings are kept. |
+| `--help` | List every option, including `--dir`, `--branch`, `--replace` and `--yes`. |
+
+To read the script first, download it with
+`curl -fsSLO https://raw.githubusercontent.com/abdullaho21/jarvis/main/install.sh`,
+then run `bash install.sh`.
+
+### Install from this checkout by hand
 
 Python 3.11+, GTK 4/PyGObject, PipeWire/WirePlumber, Hyprland, GIO, `wpctl`,
 `pw-record` and systemd user services are used on the tested setup. Screen
