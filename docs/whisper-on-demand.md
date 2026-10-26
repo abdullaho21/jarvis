@@ -235,9 +235,19 @@ All 45 commands were the expected `ten meters`.
   worker that never released Whisper. Load and release cycles are not the
   cause, and a separate allocator for Whisper did not help: it raised the peak
   by 41 MiB. mimalloc was therefore not adopted.
-- The rate is close to Vosk's feature history (34 MiB over about 10 minutes
-  of speech, then flat), but these runs decoded about 9 minutes of speech, too
-  little to see a plateau. A longer run is the next check.
+- The growth is bounded. A 32-cycle run of the current worker (all 32
+  commands correct) rose from 158.2 to 233.7 MiB over cycles 1–15, fell to
+  206.4 at cycle 16, rose to 234.3 by cycle 29 and fell to 196.4 at cycle 30.
+  Each cycle feeds Vosk about 42 seconds of audio, so the drops come every
+  ~600 seconds of decoded speech: Vosk's `Result()`/`Reset()` keep a
+  decoder's feature history until 20,000 decoded frames, then rebuild it.
+  Peak RSS was 604.7 MiB and median latency 954.0 ms.
+  [Raw results](benchmarks/load-cycles-long-2026-10-26.json).
+- After the first load (158 → 194 MiB, once), this explains a sawtooth of
+  about 40 MiB (194–234 MiB) in the benchmark, not all of the live floor
+  (366 MiB after three hours). Live use feeds the command and
+  free-form decoders real speech as well, each with its own history, and
+  that has not been measured separately.
 - Keeping Whisper loaded costs about 300 MiB more at every point, saves the
   reload CPU (36 versus 60 seconds over 15 commands), and was not faster here.
 - The room noise works around the missed-wake problem described in the

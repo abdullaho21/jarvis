@@ -164,11 +164,16 @@ risk. Requirements:
   for Rust allocations, and with Whisper kept loaded. The growth is not caused
   by Whisper load/release, so an allocator for Whisper does not address it.
   (That test was Linux GNU only and says nothing about Windows.)
-- Next: run long enough to see whether the growth plateaus (a 32-cycle run
-  was started), and attribute it. The leading candidate is Vosk's feature
-  history: `Result()`/`Reset()` keep it until ~10 minutes of decoded speech,
-  per decoder. Test by recreating or `FinalResult()`-finalizing the decoders
-  between utterances, checking wake accuracy while doing so.
+- **Measured 2026-10-26: the benchmark growth is bounded.** Over 32 cycles
+  the floor rose ~3 MiB per cycle to ~234 MiB, then fell back by 27–38 MiB
+  every ~14 cycles (~600 s of decoded speech): a sawtooth that matches Vosk
+  rebuilding a decoder's feature history after 20,000 decoded frames
+  ([results](benchmarks/load-cycles-long-2026-10-26.json)). It does not yet
+  explain the full live floor of 366 MiB after three hours; the command and
+  free-form decoders, fed real speech live, have not been measured separately.
+- Next: measure each decoder's contribution, and test recreating or
+  `FinalResult()`-finalizing the decoders between utterances so the history
+  stays per utterance, checking wake and command accuracy while doing so.
 - Fallback if growth stays unexplained: a recognizer child process, a strong
   reclamation boundary for its own memory. It needs audio buffering while it
   starts, cancellation, and a measured startup latency. Keep it alive briefly
