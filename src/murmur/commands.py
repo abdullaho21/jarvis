@@ -26,7 +26,7 @@ class CommandError(ValueError):
 @dataclass(frozen=True)
 class Intent:
     action: str
-    target: str | int | None = None
+    target: str | int | dict | None = None
 
 
 NUMBERS = dict(zip("one two three four five six seven eight nine ten".split(), range(1, 11), strict=True))
@@ -150,6 +150,9 @@ class GrammarMatcher:
 
 class Parser:
     def __init__(self, custom: dict[str, str] | None = None):
+        from .phrases import Rules
+        self.rules = Rules()
+        self.blocked_apps = set()
         self.custom = {normalize(k): normalize(v) for k, v in (custom or {}).items()}
         # Targets are canonical built-ins; no recursion, arbitrary commands, or app paths.
         for phrase, target in self.custom.items():
@@ -158,19 +161,50 @@ class Parser:
             if target not in FIXED:
                 raise CommandError(f"Custom command target is not a built-in phrase: {target}")
 
+    @classmethod
+    def from_config(cls, config):
+        from .phrases import Rules
+        parser = cls(config["commands"])
+        rules = Rules.from_config(config)
+        from .phrases import brightness_like
+        for phrase in parser.custom:
+            if brightness_like(phrase) or rules.parse_normalized(phrase) is not None:
+                raise CommandError("Command shortcut conflicts with a configured voice control")
+        for phrase in rules.launches:
+            try:
+                original = parser.parse(phrase)
+            except CommandError:
+                continue
+            if original.action not in ("open_app", "focus_app") or phrase in parser.custom:
+                raise CommandError("Application shortcut conflicts with an existing command")
+        parser.rules = rules
+        parser.blocked_apps = {normalize(k) for k in config["app_prefixes"]}
+        return parser
+
     def parse(self, text: str) -> Intent:
         if not isinstance(text, str):
             raise CommandError("Phrase must be text")
         if re.search(r"workspace\s+[+-]\s*\w", text, re.IGNORECASE):
             raise CommandError("Use an unsigned workspace number one through ten")
+        from .phrases import brightness_like, invalid_number
         phrase = normalize(text)
+        if brightness_like(phrase) and invalid_number(text):
+            raise CommandError("Brightness must be a whole unsigned percentage from zero to 100")
+        exact = self.rules.parse_normalized(phrase)
+        if exact is not None:
+            return exact
         # An exact user shortcut takes precedence over optional politeness.
         if phrase not in self.custom:
-            phrase = command_wording(phrase)
+            phrase = POLITE_SUFFIX.sub("", POLITE_PREFIX.sub("", phrase, count=1), count=1)
         phrase = self.custom.get(phrase, phrase)
         phrase = VARIANTS.get(phrase, phrase)
         if phrase in FIXED:
             return FIXED[phrase]
+        exact = self.rules.parse_normalized(phrase)
+        if exact is not None:
+            return exact
+        if brightness_like(phrase):
+            raise CommandError("Choose a configured monitor and a percentage from zero to 100")
         m = WORKSPACE_RE.fullmatch(phrase)
         if m:
             number = NUMBERS.get(m[2], int(m[2]) if m[2].isascii() and m[2].isdigit() else 0)
@@ -179,7 +213,10 @@ class Parser:
             return Intent(WORKSPACE_FORMS[m[1]], number)
         m = APP_RE.fullmatch(phrase)
         if m:
-            return Intent(APP_VERBS[m[1]], m[2])
+            target = m[2].removeprefix("the ")
+            if APP_VERBS[m[1]] == "open_app" and target in self.blocked_apps:
+                raise CommandError("Use the launch word configured for this application name")
+            return Intent(APP_VERBS[m[1]], target)
         raise CommandError("Phrase not recognized. Open Commands to see supported phrases.")
 
     def grammar(self, app_names) -> dict:
@@ -189,13 +226,13 @@ class Parser:
         by one entry per app rather than one per verb and app. Apps beyond
         ``MAX_GRAMMAR_APPS`` are reported in ``overflow`` instead of failing.
         """
-        core = set(FIXED) | set(VARIANTS) | set(self.custom)
+        core = set(FIXED) | set(VARIANTS) | set(self.custom) | set(self.rules.phrases())
         for form in WORKSPACE_FORMS:
             core.update(f"{form} {number}" for number in NUMBERS)
         if len(core) > MAX_GRAMMAR_PHRASES:
             raise CommandError(f"Too many command phrases (limit {MAX_GRAMMAR_PHRASES}). Remove command shortcuts.")
         apps = sorted({name for name in app_names if name})
-        return {"phrases": sorted(core), "apps": apps[:MAX_GRAMMAR_APPS], "custom": dict(self.custom),
+        return {"launches": self.rules.launches, "brightness_names": self.rules.monitors, "blocked_apps": sorted(self.blocked_apps), "phrases": sorted(core), "apps": apps[:MAX_GRAMMAR_APPS], "custom": dict(self.custom),
                 "verbs": sorted(v for v in APP_VERBS if v not in TYPED_ONLY_VERBS),
                 "prefixes": list(POLITE_PREFIXES),
                 "suffixes": [],
@@ -218,6 +255,11 @@ def wake_variants(phrase: str) -> list[str]:
     return [" ".join(words)]
 
 
+def all_wake_variants(activation: dict) -> list[str]:
+    return sorted({form for name in [activation["wake_phrase"], *activation.get("wake_aliases", [])]
+                   for form in wake_variants(name)})
+
+
 def _squash(text: str) -> str:
     return text.replace(" ", "")
 
@@ -234,7 +276,7 @@ def spoken_numbers(text: str) -> str:
 MAX_LEADING_WORDS = 2   # tolerate a misheard word or two before the command ("a", "uh")
 
 
-def closest_match(heard: str, candidates: dict, min_score: float = 0.82, min_margin: float = 0.06):
+def closest_match(heard: str, candidates: dict, min_score: float = 0.82, min_margin: float = 0.06, exact_only: bool = False):
     """Return (command, score) for the command closest to free-form text, or None.
 
     ``candidates`` maps each full command phrase to what it does (its intent),
@@ -256,8 +298,34 @@ def closest_match(heard: str, candidates: dict, min_score: float = 0.82, min_mar
     if len(heard) > 256:   # only the start can hold the command; keep it within normalize()'s limit
         heard = heard[:257].rsplit(" ", 1)[0]
     try:
+        literal = normalize(heard)
+        from .phrases import brightness_like
+        if literal in candidates and not brightness_like(literal):
+            return literal, 1.0
         text = spoken_numbers(command_wording(heard))
     except ValueError:
+        return None
+    from .phrases import brightness_like, invalid_number, Rules
+    # Numeric/monitor commands are exact; never guess a percentage or a target.
+    if brightness_like(text):
+        if invalid_number(heard):
+            return None
+        monitors = {}
+        import json
+        for p, value in candidates.items():
+            if value.startswith("brightness_") and p.startswith("set ") and " brightness to " in p:
+                name = p[4:].split(" brightness to ", 1)[0]
+                if name not in monitors:
+                    monitors[name] = json.loads(value.split(":", 1)[1])["monitor"]
+        canonical = Rules(monitors=monitors).canonical(text)
+        return (canonical, 1.0) if canonical in candidates else None
+    candidates = {p: v for p, v in candidates.items() if not v.startswith("brightness_")}
+    if text in candidates:
+        return text, 1.0
+    text = re.sub(r"^(open|open up|launch|start|focus|switch to) the ", r"\1 ", text)
+    if text in candidates:
+        return text, 1.0
+    if exact_only:
         return None
     words = text.split()
     if len(_squash(text)) < 3:
@@ -266,14 +334,13 @@ def closest_match(heard: str, candidates: dict, min_score: float = 0.82, min_mar
     # of it that starts within the first few words (extra speech around the
     # command). Doing it in that order keeps "open stream io" from matching
     # "open steam" through its first two words.
-    stretches = [_squash(" ".join(words[start:end]))
+    match = _closest([_squash(text)], candidates, min_score, min_margin)
+    if match:
+        return match
+    stretches = {_squash(" ".join(words[start:end]))
                  for start in range(min(MAX_LEADING_WORDS + 1, len(words)))
-                 for end in range(start + 1, len(words) + 1)]
-    for windows in ([_squash(text)], sorted({w for w in stretches if len(w) >= 3})):
-        match = _closest(windows, candidates, min_score, min_margin)
-        if match:
-            return match
-    return None
+                 for end in range(start + 1, len(words) + 1)}
+    return _closest(sorted(w for w in stretches if len(w) >= 3), candidates, min_score, min_margin)
 
 
 def _closest(windows, candidates, min_score, min_margin):
@@ -326,6 +393,9 @@ def match_candidates(grammar: dict, extra_apps=()) -> dict:
     as the *same* command and don't block each other in ``closest_match``.
     """
     parser = Parser(dict(grammar.get("custom", {})))
+    from .phrases import Rules
+    parser.rules = Rules(grammar.get("launches"), grammar.get("brightness_names"))
+    parser.blocked_apps = set(grammar.get("blocked_apps", []))
     app_ids = grammar.get("app_ids", {})
     phrases = list(grammar.get("phrases", []))
     apps = list(grammar.get("apps", [])) + [a for a in extra_apps if a]
@@ -338,5 +408,8 @@ def match_candidates(grammar: dict, extra_apps=()) -> dict:
         except ValueError:
             continue
         target = app_ids.get(intent.target, intent.target) if intent.action in ("open_app", "focus_app") else intent.target
+        if isinstance(target, dict):
+            import json
+            target = json.dumps(target, sort_keys=True, separators=(",", ":"))
         result[phrase] = f"{intent.action}:{target}"
     return result

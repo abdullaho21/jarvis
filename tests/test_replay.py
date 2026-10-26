@@ -172,7 +172,7 @@ class ReplayTests(unittest.TestCase):
                 self.assertEqual(argv[argv.index("-k") + 1], "hevc_hdr")
                 self.assertIn("HDR", status["message"])
                 saved = self.replay.save()
-                verify.assert_called_once_with(Path(saved["file"]), color="hdr")
+                verify.assert_called_once_with(Path(saved["file"]), color="hdr", codec=None)
             finally:
                 self.replay.stop()
 

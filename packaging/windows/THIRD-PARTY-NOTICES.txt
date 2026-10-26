@@ -1,0 +1,49 @@
+Jarvis 0.2.0 third-party components
+
+Jarvis source: MIT; LICENSE accompanies this distribution.
+Python: Python Software Foundation license; licenses/Python-LICENSE.txt.
+Tcl/Tk: Tcl/Tk permissive licenses, included in licenses/.
+PyInstaller bootloader: GPL with the bootloader distribution exception.
+pywin32 / pywin32-ctypes / pypiwin32: see their included licenses.
+PyAudioWPatch / PortAudio: MIT and PortAudio license, respectively.
+pycaw, pyvda, screen_brightness_control, comtypes, WMI and audioop-lts:
+see licenses/ for the upstream notices from the installed distributions.
+Vosk runtime: Apache-2.0 (with its bundled third-party runtime notices).
+PocketSphinx: BSD-style; included notices also cover its bundled English model.
+sherpa-onnx / ONNX Runtime: Apache-2.0 / MIT; included upstream notices.
+Whisper model: OpenAI, MIT; int8 ONNX conversion distributed by sherpa-onnx.
+Vosk small English 0.15 model: Apache-2.0.
+GTCRN denoising model: MIT; upstream license included.
+
+The manifest records the exact dependency versions and SHA-256 hashes of
+bundled files. licenses/ also contains notices for supporting Python packages
+collected from their installed distribution metadata. Upstream files retain
+their own copyright holders and license terms.
+
+FFmpeg 8.1 + x264 are separate subprocess executables under GPLv3-or-later.
+FFmpeg is built without network protocols or nonfree components, with x264,
+NVIDIA codec headers, AMD AMF headers, Intel libvpl and LLVM-MinGW runtimes.
+Their notices and complete corresponding source/used headers/build recipe
+are supplied in FFmpeg-Corresponding-Source.tar.xz and licenses/.
+The Intel dispatcher includes one compatibility patch to restrict an old
+MSVC fallback to actual old MSVC compilers. The unused gfxcapture filter is
+disabled; DDA capture remains enabled. No FFmpeg source patch is applied.
+
+Provenance:
+https://www.python.org/
+https://github.com/pyinstaller/pyinstaller
+https://github.com/mhammond/pywin32
+https://github.com/s0d3s/PyAudioWPatch
+https://github.com/AndreMiras/pycaw
+https://github.com/mirober/pyvda
+https://github.com/Crozzers/screen_brightness_control
+https://alphacephei.com/vosk/models
+https://github.com/k2-fsa/sherpa-onnx
+https://github.com/openai/whisper
+https://github.com/Xiaobin-Rong/gtcrn
+https://ffmpeg.org/
+https://code.videolan.org/videolan/x264
+https://github.com/Intel/libvpl
+https://github.com/FFmpeg/nv-codec-headers
+https://github.com/GPUOpen-LibrariesAndSDKs/AMF
+https://github.com/mstorsjo/llvm-mingw

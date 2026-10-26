@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-25",
+  "timezone": "Asia/Riyadh",
+  "scope": "Three alternating fresh-process startup pairs, warm filesystem cache, same local model and eight threads, no audio or inference. VmHWM measured immediately after loading and malloc_trim.",
+  "platform": "Linux-7.3.0-5-cachyos-x86_64-with-glibc2.44",
+  "binary_sha256": {
+    "before": "a131d36231ac520698d7f945cb5f82316ebc356da87f148448a7a64bd82278ae",
+    "after": "8c829da3da33332b4e92cffc94e85fbcb141ad4e0aa4246029d579bb4e75cd29"
+  },
+  "model_sha256": {
+    "small.en-tokens.txt": "306cd27f03c1a714eca7108e03d66b7dc042abe8c258b44c199a7ed9838dd930",
+    "small.en-encoder.int8.onnx": "8bdac288f369aa94ee2194059238c465ed82ea9d47ee8fa4a8c0a891873e462f",
+    "small.en-decoder.int8.onnx": "710ccf890e10f3faa15f51ec346081a2723c9f3adb6e4da81c6573a5a6f877fb"
+  },
+  "samples": [
+    {
+      "side": "before",
+      "repeat": 0,
+      "load_seconds": 1.628359686,
+      "peak_rss_mib": 528.65625,
+      "rss_mib": 314.95703125
+    },
+    {
+      "side": "after",
+      "repeat": 0,
+      "load_seconds": 1.570666444,
+      "peak_rss_mib": 344.01953125,
+      "rss_mib": 311.4921875
+    },
+    {
+      "side": "after",
+      "repeat": 1,
+      "load_seconds": 1.560284127,
+      "peak_rss_mib": 344.2734375,
+      "rss_mib": 312.0703125
+    },
+    {
+      "side": "before",
+      "repeat": 1,
+      "load_seconds": 1.5923110010000001,
+      "peak_rss_mib": 529.26171875,
+      "rss_mib": 315.234375
+    },
+    {
+      "side": "before",
+      "repeat": 2,
+      "load_seconds": 1.578393701,
+      "peak_rss_mib": 529.2734375,
+      "rss_mib": 315.17578125
+    },
+    {
+      "side": "after",
+      "repeat": 2,
+      "load_seconds": 1.587942493,
+      "peak_rss_mib": 344.08203125,
+      "rss_mib": 311.54296875
+    }
+  ],
+  "medians": {
+    "before": {
+      "load_seconds": 1.5923110010000001,
+      "rss_mib": 315.17578125,
+      "peak_rss_mib": 529.26171875
+    },
+    "after": {
+      "load_seconds": 1.570666444,
+      "rss_mib": 311.54296875,
+      "peak_rss_mib": 344.08203125
+    }
+  }
+}

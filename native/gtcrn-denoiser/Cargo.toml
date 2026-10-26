@@ -1,0 +1,15 @@
+[package]
+name = "jarvis-gtcrn"
+version = "0.2.0"
+edition = "2021"
+rust-version = "1.91"
+license = "MIT"
+description = "GTCRN speech denoising with Rust spectral processing and Rust neural inference"
+
+[dependencies]
+tract-onnx = { version = "=0.23.9", default-features = false }
+rustfft = "6"
+
+[[bin]]
+name = "jarvis-denoise"
+path = "src/main.rs"

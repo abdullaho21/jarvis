@@ -49,6 +49,17 @@ class PocketSphinxIntegrationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.engine.feed(b'\0\0')
 
+    def test_wake_alias_keyword_file_is_loaded_then_removed(self):
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder, patch.object(tempfile, 'tempdir', folder):
+            engine = SpeechEngine(['open firefox'], wake_phrase='hey computer', wake_aliases=['jarvis'])
+            try:
+                self.assertIn('jarvis', engine._wake_forms)
+                self.assertEqual(os.listdir(folder), [])
+            finally:
+                engine.close()
+
     def test_cancel_disarms(self):
         self.engine.begin_command()
         self.engine.cancel()

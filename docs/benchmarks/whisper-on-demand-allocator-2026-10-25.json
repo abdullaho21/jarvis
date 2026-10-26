@@ -1,0 +1,133 @@
+{
+  "date": "2026-10-25",
+  "method": "scripts/benchmark_whisper_on_demand.py session() with the final on-demand worker minus its one-arena setting, GTCRN on, whisper_idle_seconds 2, 5 s gaps, six one-breath fixture commands; each variant launched through an exec wrapper that set the listed glibc environment and/or PR_SET_THP_DISABLE. at_wake_rss_mib is sampled RSS when each fixture repetition starts (Whisper released for every command).",
+  "variants": {
+    "default": "glibc defaults (per-thread arenas, adaptive mmap threshold), THP always",
+    "mmap": "MALLOC_MMAP_THRESHOLD_=131072",
+    "arena1": "MALLOC_ARENA_MAX=1",
+    "nothp": "PR_SET_THP_DISABLE",
+    "mmap-nothp": "MALLOC_MMAP_THRESHOLD_=131072 and PR_SET_THP_DISABLE"
+  },
+  "results": [
+    {
+      "variant": "default",
+      "waiting_rss_mib": 155.68,
+      "peak_rss_mib": 618.09,
+      "at_wake_rss_mib": [
+        155.68,
+        194.0,
+        210.89,
+        213.95,
+        225.68,
+        231.78
+      ],
+      "latency_ms": [
+        1210.6,
+        993.3,
+        985.4,
+        992.8,
+        974.8,
+        980.4
+      ],
+      "texts": [
+        "ten meters"
+      ]
+    },
+    {
+      "variant": "mmap",
+      "waiting_rss_mib": 155.66,
+      "peak_rss_mib": 535.6,
+      "at_wake_rss_mib": [
+        155.66,
+        186.54,
+        187.38,
+        187.8,
+        188.21,
+        188.43
+      ],
+      "latency_ms": [
+        1488.2,
+        1438.9,
+        1405.8,
+        1432.2,
+        1433.2,
+        1406.1
+      ],
+      "texts": [
+        "ten meters"
+      ]
+    },
+    {
+      "variant": "arena1",
+      "waiting_rss_mib": 156.26,
+      "peak_rss_mib": 570.79,
+      "at_wake_rss_mib": [
+        156.26,
+        189.6,
+        191.26,
+        192.31,
+        193.22,
+        194.05
+      ],
+      "latency_ms": [
+        1133.3,
+        1019.2,
+        996.0,
+        973.3,
+        977.8,
+        988.7
+      ],
+      "texts": [
+        "ten meters"
+      ]
+    },
+    {
+      "variant": "nothp",
+      "waiting_rss_mib": 142.1,
+      "peak_rss_mib": 581.98,
+      "at_wake_rss_mib": [
+        142.1,
+        186.14,
+        202.9,
+        194.4,
+        209.75,
+        212.1
+      ],
+      "latency_ms": [
+        1220.6,
+        1008.4,
+        1049.1,
+        991.2,
+        1002.4,
+        994.9
+      ],
+      "texts": [
+        "ten meters"
+      ]
+    },
+    {
+      "variant": "mmap-nothp",
+      "waiting_rss_mib": 141.88,
+      "peak_rss_mib": 522.34,
+      "at_wake_rss_mib": [
+        141.88,
+        173.17,
+        174.03,
+        174.46,
+        174.71,
+        174.95
+      ],
+      "latency_ms": [
+        1896.6,
+        1889.1,
+        1907.3,
+        1853.2,
+        1852.1,
+        1852.7
+      ],
+      "texts": [
+        "ten meters"
+      ]
+    }
+  ]
+}

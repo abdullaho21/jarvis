@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-22",
+  "platform": "Linux-7.2.10-1-cachyos-x86_64-with-glibc2.44",
+  "fixture_sha256": "f15c60ec54059d8b66e410d0064945a0b0a04ea56e1ddca1958e493c0cf70e71",
+  "commands_identical": true,
+  "scope": "complete voice worker Vosk+Whisper with fake paced capture; excludes capture child, service, UI and real microphone; surrogate wake go forward and allowlisted ten meters command; no actions",
+  "python": {
+    "worker": "python",
+    "denoise": false,
+    "commands": [
+      "ten meters",
+      "ten meters",
+      "ten meters"
+    ],
+    "load_seconds": 1.0952526809996925,
+    "loaded_rss_mib": 581.77734375,
+    "final_rss_mib": 599.65625,
+    "peak_rss_mib": 832.44921875,
+    "command_rss_mib": [
+      598.80859375,
+      599.3671875,
+      599.65625
+    ],
+    "cpu_seconds": 5.16,
+    "elapsed_seconds": 16.28360384500047
+  },
+  "rust": {
+    "worker": "rust",
+    "denoise": false,
+    "commands": [
+      "ten meters",
+      "ten meters",
+      "ten meters"
+    ],
+    "load_seconds": 1.918738222000684,
+    "loaded_rss_mib": 537.375,
+    "final_rss_mib": 557.4140625,
+    "peak_rss_mib": 648.25,
+    "command_rss_mib": [
+      555.3828125,
+      556.734375,
+      557.4140625
+    ],
+    "cpu_seconds": 7.3999999999999995,
+    "elapsed_seconds": 17.345580331999372
+  }
+}

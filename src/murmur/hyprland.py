@@ -77,9 +77,10 @@ class Hyprland:
         raise CommandError("Hyprland rejected the action: " + detail)
 
     def running(self, app) -> list[dict]:
+        classes = app.classes()
         return sorted([c for c in self.query("clients") if
-                       str(c.get("class", "")).casefold() in app.classes() or
-                       str(c.get("initialClass", "")).casefold() in app.classes()],
+                       str(c.get("class", "")).casefold() in classes or
+                       str(c.get("initialClass", "")).casefold() in classes],
                       key=lambda c: c.get("focusHistoryID", 9999))
 
 

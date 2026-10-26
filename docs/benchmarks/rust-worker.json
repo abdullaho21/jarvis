@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-22",
+  "platform": "Linux-7.2.10-1-cachyos-x86_64-with-glibc2.44",
+  "fixture_sha256": "f15c60ec54059d8b66e410d0064945a0b0a04ea56e1ddca1958e493c0cf70e71",
+  "commands_identical": true,
+  "scope": "complete voice worker Vosk+Whisper with fake paced capture; excludes capture child, service, UI and real microphone; surrogate wake go forward and allowlisted ten meters command; no actions",
+  "python": {
+    "worker": "python",
+    "denoise": false,
+    "commands": [
+      "ten meters",
+      "ten meters",
+      "ten meters"
+    ],
+    "load_seconds": 0.9840907319994585,
+    "loaded_rss_mib": 583.703125,
+    "final_rss_mib": 601.23046875,
+    "peak_rss_mib": 823.83984375,
+    "command_rss_mib": [
+      600.33984375,
+      600.93359375,
+      601.23046875
+    ],
+    "cpu_seconds": 4.3,
+    "elapsed_seconds": 16.08359614299934
+  },
+  "rust": {
+    "worker": "rust",
+    "denoise": false,
+    "commands": [
+      "ten meters",
+      "ten meters",
+      "ten meters"
+    ],
+    "load_seconds": 0.9139104699997915,
+    "loaded_rss_mib": 565.78515625,
+    "final_rss_mib": 583.19140625,
+    "peak_rss_mib": 815.92578125,
+    "command_rss_mib": [
+      582.54296875,
+      582.98046875,
+      583.19140625
+    ],
+    "cpu_seconds": 4.05,
+    "elapsed_seconds": 15.986579116999565
+  },
+  "implementation": "Historical initial Rust worker wrapper; GTCRN, if enabled, used the sherpa-onnx C API. Not a measurement of the new Rust GTCRN neural implementation."
+}

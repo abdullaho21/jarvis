@@ -1,12 +1,17 @@
 """Intent executor, independent of recognition and UI."""
 from .commands import CommandError
-from .hyprland import volume
+from .host import is_windows
+if is_windows():
+    from .windows.desktop import volume
+else:
+    from .hyprland import volume
 
 
 class Dispatcher:
-    def __init__(self, apps, desktop, recorder, pause, open_ui, replay=None):
+    def __init__(self, apps, desktop, recorder, pause, open_ui, replay=None, config=None):
         self.apps, self.desktop, self.recorder, self.replay = apps, desktop, recorder, replay
         self.pause, self.open_ui = pause, open_ui
+        self.config = config
 
     def execute(self, intent):
         action = intent.action
@@ -32,6 +37,12 @@ class Dispatcher:
         if action in ("workspace", "move_workspace", "fullscreen", "unfullscreen"):
             self.desktop.dispatch(action, intent.target)
             return "Desktop updated"
+        if action.startswith("brightness_"):
+            if is_windows():
+                from .windows.brightness import execute
+            else:
+                from .brightness import execute
+            return execute(intent, self.config)
         if action.startswith("volume_"):
             volume(action)
             return "Volume updated"

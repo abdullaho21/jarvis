@@ -139,7 +139,7 @@ class AppRegistry:
                         normalized = normalize(name)
                     except ValueError:
                         continue
-                    for variant in {normalized, spoken_numbers(normalized)}:
+                    for variant in {normalized, spoken_numbers(normalized), normalized.removeprefix("the "), spoken_numbers(normalized.removeprefix("the "))}:
                         if variant and variant not in indexed_names:
                             index.setdefault(variant, []).append(a)
                             indexed_names.add(variant)
@@ -150,10 +150,11 @@ class AppRegistry:
 
     def resolve(self, phrase: str) -> App:
         name = normalize(phrase)
-        if name in {normalize(k) for k in self.aliases}:
-            target = next(v for k, v in self.aliases.items() if normalize(k) == name)
-            if target not in self.apps:
-                raise CommandError(f"Alias points to a missing application: {target}")
+        for alias, target in self.aliases.items():
+            if normalize(alias) == name:
+                if target not in self.apps:
+                    raise CommandError(f"Alias points to a missing application: {target}")
+                break
         matches = self.index.get(name, [])
         if not matches:
             raise CommandError("Application not found. Add an alias in Applications.")

@@ -3,10 +3,10 @@
 // reconnects by itself, so restart-interval is only a fallback.
 {
   "custom/murmur": {
-    "exec": "/absolute/path/to/checkout/.venv/bin/jarvis waybar",
+    "exec": "/absolute/path/to/checkout/run-jarvis waybar",
     "return-type": "json",
     "restart-interval": 5,
-    "on-click": "/absolute/path/to/checkout/.venv/bin/jarvis ui",
-    "on-click-right": "/absolute/path/to/checkout/.venv/bin/jarvis mute"
+    "on-click": "/absolute/path/to/checkout/run-jarvis ui",
+    "on-click-right": "/absolute/path/to/checkout/run-jarvis mute"
   }
 }

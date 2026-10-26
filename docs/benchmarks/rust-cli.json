@@ -1,0 +1,69 @@
+{
+  "workload": "Persistent Waybar client, service offline, one event then bounded reconnect backoff; no controller, audio, UI or model inference",
+  "system": "Linux-7.2.10-1-cachyos-x86_64-with-glibc2.44",
+  "python": "3.14.8",
+  "pairs": 3,
+  "clock_ticks_per_second": 100,
+  "samples": {
+    "python": [
+      {
+        "rss_mib": 16.1171875,
+        "pss_mib": 8.82421875,
+        "ready_ms": 33.83886700066796,
+        "idle_seconds": 2,
+        "idle_cpu_ticks": 0
+      },
+      {
+        "rss_mib": 16.15625,
+        "pss_mib": 9.0234375,
+        "ready_ms": 31.737772000269615,
+        "idle_seconds": 2,
+        "idle_cpu_ticks": 0
+      },
+      {
+        "rss_mib": 16.19140625,
+        "pss_mib": 9.0263671875,
+        "ready_ms": 30.468754999674275,
+        "idle_seconds": 2,
+        "idle_cpu_ticks": 0
+      }
+    ],
+    "rust": [
+      {
+        "rss_mib": 3.62109375,
+        "pss_mib": 1.5439453125,
+        "ready_ms": 0.7217479997052578,
+        "idle_seconds": 2,
+        "idle_cpu_ticks": 0
+      },
+      {
+        "rss_mib": 3.5625,
+        "pss_mib": 1.4814453125,
+        "ready_ms": 1.0684360004233895,
+        "idle_seconds": 2,
+        "idle_cpu_ticks": 0
+      },
+      {
+        "rss_mib": 3.5625,
+        "pss_mib": 1.4814453125,
+        "ready_ms": 0.8509729996148963,
+        "idle_seconds": 2,
+        "idle_cpu_ticks": 0
+      }
+    ]
+  },
+  "medians": {
+    "python": {
+      "rss_mib": 16.15625,
+      "pss_mib": 9.0234375,
+      "ready_ms": 31.737772000269615,
+      "idle_cpu_ticks": 0
+    },
+    "rust": {
+      "rss_mib": 3.5625,
+      "pss_mib": 1.4814453125,
+      "ready_ms": 0.8509729996148963,
+      "idle_cpu_ticks": 0
+    }
+  }
+}

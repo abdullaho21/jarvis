@@ -48,7 +48,7 @@ class SpeechEngine:
     sample_rate = 16000
 
     def __init__(self, grammar: dict | list[str], wake_phrase: str = "hey murmur",
-                 sensitivity: float = 0.5):
+                 sensitivity: float = 0.5, wake_aliases=()):
         """``grammar`` is ``Parser.grammar()`` output, or a plain phrase list."""
         if not math.isfinite(sensitivity) or not 0 <= sensitivity <= 1:
             raise ValueError("Activation sensitivity must be between 0 and 1")
@@ -78,10 +78,25 @@ class SpeechEngine:
         self.apps = frozenset(apps)
         self._matcher = GrammarMatcher(known, apps if verbs else (), verbs)
         self._decoder.add_jsgf_string("commands", self.jsgf(known, apps, verbs, prefixes, suffixes))
-        missing_wake = self._missing_words(self.wake_phrase)
+        from .commands import all_wake_variants
+        self._wake_forms = all_wake_variants({"wake_phrase": self.wake_phrase, "wake_aliases": list(wake_aliases)})
+        missing_wake = sorted({w for name in self._wake_forms for w in self._missing_words(name)})
         if missing_wake:
             raise ValueError("Wake phrase contains unsupported dictionary words: " + ", ".join(missing_wake))
-        self._decoder.add_keyphrase("wake", self.wake_phrase)
+        if wake_aliases:
+            import os
+            import tempfile
+            # Closed before PocketSphinx opens it by name: Windows refuses a
+            # second open of a still-open delete-on-close temporary file.
+            fd, keywords = tempfile.mkstemp(suffix=".kws", text=True)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as file:
+                    file.write("\n".join(self._wake_forms) + "\n")
+                self._decoder.add_kws("wake", keywords)
+            finally:
+                os.unlink(keywords)
+        else:
+            self._decoder.add_keyphrase("wake", self.wake_phrase)
         self._mode: Literal["wake", "command"] | None = None
         self._utterance = False
         self._utterance_bytes = 0
@@ -180,7 +195,7 @@ class SpeechEngine:
         text = normalize_phrase(hypothesis.hypstr)
         if self._mode == "wake":
             # KWS acceptance uses kws_threshold, not an invented confidence score.
-            return Recognition("wake", self.wake_phrase, None) if self.wake_phrase in text else None
+            return Recognition("wake", self.wake_phrase, None) if any(name in text for name in getattr(self, "_wake_forms", [self.wake_phrase])) else None
         if not self._matcher.accepts(text):
             return None
         posterior = self._posterior(hypothesis.prob)

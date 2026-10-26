@@ -1,0 +1,53 @@
+{
+  "observed_at": "2026-10-23T15:09:27.275523+00:00",
+  "units": "MiB",
+  "ranking_note": "RSS includes shared pages; PSS apportions shared pages; USS is private memory. Single processes, not app totals. Observed snapshot, not a controlled benchmark.",
+  "largest_rss_process": {
+    "name": "firefox",
+    "pid": 40092,
+    "rss_mib": 772.31,
+    "pss_mib": 540.0,
+    "uss_mib": 503.82
+  },
+  "largest_pss_process": {
+    "name": "jarvis-voice",
+    "pid": 1290164,
+    "rss_mib": 689.76,
+    "pss_mib": 685.22,
+    "uss_mib": 685.15
+  },
+  "jarvis_service": [
+    {
+      "name": "jarvis-voice",
+      "rss_mib": 689.76,
+      "pss_mib": 685.22,
+      "uss_mib": 685.15
+    },
+    {
+      "name": "gpu-screen-recorder",
+      "rss_mib": 372.77,
+      "pss_mib": 314.34,
+      "uss_mib": 308.17
+    },
+    {
+      "name": "pw-record",
+      "rss_mib": 8.94,
+      "pss_mib": 2.87,
+      "uss_mib": 2.28
+    },
+    {
+      "name": "jarvis-controller",
+      "rss_mib": 6.91,
+      "pss_mib": 4.62,
+      "uss_mib": 4.61
+    }
+  ],
+  "target": {
+    "component": "Whisper token embedding",
+    "values": 39831552,
+    "original_storage_mib": 151.9453125,
+    "exact_binary16_values": 39831552,
+    "max_storage_conversion_error": 0.0,
+    "original_embedding_map_rss_mib": 152.328125
+  }
+}

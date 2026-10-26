@@ -1,5 +1,12 @@
 # Current performance
 
+The latest Rust startup and temporary-buffer measurements are in
+[model loading memory](rust-memory-loading.md). Since 2026-10-25 the Rust
+worker loads Whisper on demand: about 156 MiB while waiting for the wake
+phrase, versus 469 MiB with Whisper kept loaded; see
+[on-demand Whisper](whisper-on-demand.md). The dated comparisons below
+retain their original scope and baselines.
+
 Measured locally on 2026-10-21, AMD Ryzen 7 7800X3D, 16 logical CPUs,
 Python 3.14.8. Voice recognition uses Vosk plus int8 Whisper small.en,
 eight inference threads and CPU execution. The GTK client is separate.
@@ -121,6 +128,25 @@ separate costs and explicit opt-ins. Avoid parallel inference benchmarks when
 comparing timing.
 
 ## Practical limits
+
+The [voice-worker memory audit](rust-worker-memory.md) targets the largest
+Jarvis process. Lossless embedding storage cut the controlled complete Rust
+worker's retained RSS from **558.88 to 482.98 MiB**, with the same model values
+and identical fixture commands. [Raw comparison](benchmarks/rust-embedding-worker.json).
+This supersedes older Rust worker memory figures for the new build; it does
+not change the screen recorder's RAM buffers.
+
+The optional [Rust controller](rust-controller.md) has a separate
+[controller-only comparison](benchmarks/rust-controller.json). It measures the
+background service with voice/replay off and excludes the UI, speech models and
+video buffers. Those memory savings must not be interpreted as a percentage
+reduction in the full running application.
+
+The [Rust CLI comparison](rust-cli.md#verification-and-memory) measures the
+persistent offline Waybar client separately: median RSS was **16.16 MiB for
+Python versus 3.56 MiB for Rust** across three process pairs. This is about
+78% less memory for that indicator process; it does not change model or replay
+buffer memory. [Raw samples](benchmarks/rust-cli.json) include PSS and timings.
 
 Whisper has a brief CPU burst per command; low standby CPU does not imply zero
 interference during inference. No controlled game FPS/frame-time comparison has

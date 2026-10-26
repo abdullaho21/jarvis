@@ -3,9 +3,24 @@
 Jarvis has three independent process lifetimes. The stdlib asyncio service owns
 configuration, private Unix IPC, app discovery, parsing and action dispatch. It
 does not import GTK or any speech inference library. The voice worker owns
-Vosk, the resident Whisper small.en transcriber and a `pw-record` child. GTK settings is a separate
+Vosk, the Whisper small.en transcriber and a `pw-record` child. The Rust worker
+loads Whisper [on demand](whisper-on-demand.md) and releases it after a minute
+without a command. GTK settings is a separate
 process; closing it releases the UI while voice and recorder remain available.
 The recorder is a separate established `wf-recorder` process only while needed.
+
+The optional [Rust controller](rust-controller.md) replaces the background
+service while preserving its Unix-socket API. It owns configuration, parsing,
+app discovery, action dispatch and voice/recorder/replay lifetimes directly in
+Rust. GTK remains a separate Python client. The existing Python controller
+remains the default unless Rust is explicitly selected.
+
+The optional [Rust CLI](rust-cli.md) shares the controller's library for
+configuration, policy and local integration. It handles controls, aliases,
+Waybar events, diagnostics and setup directly. Building it makes `run-jarvis`
+prefer the native executable; its `daemon` command runs the Rust controller.
+`MURMUR_CLI=python` retains access to the Python launcher and controller selector.
+The `ui` command replaces the client with the separate Python/GTK window.
 
 ```mermaid
 flowchart LR
@@ -27,8 +42,11 @@ flowchart LR
 ## Activation
 
 The default is `wake_word`, with consent initially false. Before consent, no
-microphone/model worker runs. After consent and while unmuted, Vosk and Whisper
-remain resident; Vosk gates the stronger model's work. Say “hey Jarvis” or
+microphone/model worker runs. After consent and while unmuted, Vosk stays
+resident and gates the stronger model's work. The Rust worker starts loading
+Whisper on a background thread when Vosk's in-progress hypothesis contains a
+wake name, and frees it after 60 seconds without a command; the Python worker
+keeps Whisper resident. Say “hey Jarvis” or
 “Jarvis” followed by one command. A 210 ms quiet period after separate activation prevents the wake-phrase
 tail becoming a command. An eight-second default session deadline includes
 that settling period. The configurable maximum is fifteen seconds. A command
@@ -82,6 +100,7 @@ uses a longer graceful interval for file finalization.
 
 ## Trust boundaries
 
+
 Speech never becomes shell text. The parser only produces typed intents from
 an allowlist. Hyprland workspace IDs are integers 1–10, window focus uses an
 address returned by Hyprland, and fullscreen is an idempotent set/unset action.
@@ -124,6 +143,18 @@ owns capture/session mechanics, `daemon/client` own transport and process
 lifetime, and `ui` is a native client. A different desktop can implement the
 desktop query/dispatch adapter without teaching the parser shell commands.
 Only Hyprland is implemented and verified here.
+
+The Rust worker implements the same voice-process boundary and JSON protocol.
+The Linux daemon prefers it when the executable, Vosk library and model are
+available. Windows, PocketSphinx and source-only installations use Python.
+`MURMUR_VOICE_WORKER=rust` or `python` explicitly selects either implementation. Paths and command-to-intent candidates are prepared without
+importing speech libraries in the daemon. See [Rust worker](rust-voice.md) for
+build instructions, model parity, measured memory savings and prototype limits.
+Whisper and GTCRN computation in this worker now uses Rust/tract kernels and
+RustFFT, without sherpa-onnx or ONNX Runtime. Vosk wake/boundary decoding still
+uses its existing shared library. The Rust decoder owns append-only command
+caches and discards inference scratch between commands. See
+[Rust Whisper](rust-whisper.md) for its supported export and measured latency.
 
 The adapter invokes `hyprctl` with structured arguments and parses its JSON
 queries. With a Lua Hyprland config (0.55+), dispatches use the Lua

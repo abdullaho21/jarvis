@@ -1,0 +1,110 @@
+{
+  "onnxruntime_reference": "1.31.0",
+  "scope": "offline tensor diagnostic; excludes resource comparisons",
+  "fixture_sha256": "f15c60ec54059d8b66e410d0064945a0b0a04ea56e1ddca1958e493c0cf70e71",
+  "model_sha256": {
+    "small.en-encoder.int8.onnx": "8bdac288f369aa94ee2194059238c465ed82ea9d47ee8fa4a8c0a891873e462f",
+    "small.en-decoder.int8.onnx": "710ccf890e10f3faa15f51ec346081a2723c9f3adb6e4da81c6573a5a6f877fb"
+  },
+  "cases": [
+    {
+      "case": "clean",
+      "text": "Go forward 10 meters",
+      "feature_frames": 329,
+      "cross_k": {
+        "max_abs": 2.9549052715301514,
+        "relative_rms": 0.039752967744203394
+      },
+      "cross_v": {
+        "max_abs": 1.8847251534461975,
+        "relative_rms": 0.0847318875924029
+      },
+      "decoder_steps": [
+        {
+          "rust_token": 1514,
+          "reference_token": 1514,
+          "max_abs": 0.2016189694404602,
+          "relative_rms": 0.020104297266223054
+        },
+        {
+          "rust_token": 2651,
+          "reference_token": 2651,
+          "max_abs": 0.11554098129272461,
+          "relative_rms": 0.01547553216104257
+        },
+        {
+          "rust_token": 838,
+          "reference_token": 838,
+          "max_abs": 0.09235382080078125,
+          "relative_rms": 0.003284685813693851
+        },
+        {
+          "rust_token": 10700,
+          "reference_token": 10700,
+          "max_abs": 0.18128061294555664,
+          "relative_rms": 0.007989244103841525
+        },
+        {
+          "rust_token": 50256,
+          "reference_token": 50256,
+          "max_abs": 0.2992238998413086,
+          "relative_rms": 0.028651045032148992
+        }
+      ]
+    },
+    {
+      "case": "long",
+      "text": "Go forward 10 meters.",
+      "feature_frames": 707,
+      "cross_k": {
+        "max_abs": 3.9365521669387817,
+        "relative_rms": 0.05135817301510783
+      },
+      "cross_v": {
+        "max_abs": 2.7460996508598328,
+        "relative_rms": 0.09306955285292291
+      },
+      "decoder_steps": [
+        {
+          "rust_token": 1514,
+          "reference_token": 1514,
+          "max_abs": 1.1205673217773438e-05,
+          "relative_rms": 1.0256502100864702e-06
+        },
+        {
+          "rust_token": 2651,
+          "reference_token": 2651,
+          "max_abs": 2.4199485778808594e-05,
+          "relative_rms": 9.788303268591819e-06
+        },
+        {
+          "rust_token": 838,
+          "reference_token": 838,
+          "max_abs": 0.1094660758972168,
+          "relative_rms": 0.0034881578887175
+        },
+        {
+          "rust_token": 10700,
+          "reference_token": 10700,
+          "max_abs": 0.17501401901245117,
+          "relative_rms": 0.005602960339478992
+        },
+        {
+          "rust_token": 13,
+          "reference_token": 13,
+          "max_abs": 0.1974778175354004,
+          "relative_rms": 0.015900683600792796
+        },
+        {
+          "rust_token": 50256,
+          "reference_token": 50256,
+          "max_abs": 0.20142507553100586,
+          "relative_rms": 0.01752576121552231
+        }
+      ]
+    }
+  ],
+  "decoder_argmax_identical": true,
+  "numerically_identical": false,
+  "interpretation": "Matching argmax on this fixture does not prove tensor equivalence or general recognition accuracy."
+}

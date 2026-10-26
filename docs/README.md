@@ -8,7 +8,18 @@ Start with the root [README](../README.md) for installation and everyday use.
 | [Performance](performance.md) | Current CPU/RAM measurements and reproduction |
 | [Memory and background check](memory-background.md) | Allocator comparison and live background verification |
 | [Review handoff](review-ready.md) | Where to review and what remains unverified |
+| [Windows release](windows.md) | Windows installer/ZIP, build instructions and hardware acceptance |
+| [Feature review](feature-review.md) | Recording settings and deferred Discord work |
+| [Local refactor review](refactor-review.md) | October 24 refactor, equivalence checks and measured CPU/RAM results |
 | [Voice models](speech-research.md) | Current model path and public test fixture |
+| [Rust voice worker](rust-voice.md) | Optional native worker, build/selection and measured memory comparison |
+| [Rust denoiser](rust-denoiser.md) | Rust GTCRN computation, standalone binary and waveform verification |
+| [Rust Whisper](rust-whisper.md) | Rust recognition computation, cache reconstruction and memory/latency tradeoffs |
+| [Voice-worker memory](rust-worker-memory.md) | Process memory audit and lossless Whisper embedding compaction |
+| [Model loading memory](rust-memory-loading.md) | Incremental Rust weight loading, cache ownership and startup/peak RAM comparison |
+| [On-demand Whisper](whisper-on-demand.md) | Loading Whisper on a wake name, idle release, and measured RAM/latency tradeoff |
+| [Rust controller](rust-controller.md) | Native service API, process ownership, compatibility checks and controller memory comparison |
+| [Rust CLI](rust-cli.md) | Native controls, Waybar, aliases, diagnostics and verified setup |
 | [Recording](recording.md) | Permissions, audio sources, encoders and recovery |
 | [UI](ui.md) | Native settings interface and accessibility checks |
 | [Troubleshooting](troubleshooting.md) | Operational errors and recovery |

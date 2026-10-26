@@ -6,6 +6,11 @@ import subprocess
 
 
 def play(state: str):
+    from .host import is_windows
+    if is_windows():
+        import winsound
+        winsound.MessageBeep(winsound.MB_ICONHAND if state == "error" else winsound.MB_OK)
+        return
     player = shutil.which("pw-play")
     if not player:
         return

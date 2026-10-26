@@ -29,8 +29,11 @@ def _sha256(path: Path) -> str:
 
 
 def default_model_path() -> Path:
-    home = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
-    return home / "murmur/models" / MODEL_NAME
+    from .host import app_dir, data_dir, is_windows
+    bundled = app_dir() / "models" / MODEL_NAME
+    if is_windows() and valid_model(bundled):
+        return bundled
+    return data_dir() / "models" / MODEL_NAME
 
 
 def valid_model(path: Path) -> bool:
