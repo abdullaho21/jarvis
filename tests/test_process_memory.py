@@ -1,12 +1,14 @@
 """Memory counters and accounting failures; no devices or desktop actions."""
 import asyncio
+import ctypes
+import mmap
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from murmur import process_memory as memory
 from scripts.benchmark_application_memory import summarize
@@ -91,6 +93,59 @@ class AccountingTests(unittest.TestCase):
         sample.assert_called_once_with()
 
 
+class WindowsWorkingSetFallbackTests(unittest.TestCase):
+    def test_retry_counts_private_pages_and_excludes_shareable_single_owner(self):
+        from murmur.windows.process_memory import private_working_set
+        dll = MagicMock()
+        calls = []
+
+        def query(handle, buffer, size):
+            calls.append(size)
+            if len(calls) == 1:
+                buffer[0] = 5000
+                return False
+            buffer[0] = 3
+            # ShareCount=1 does not make a shareable page private.
+            buffer[1], buffer[2], buffer[3] = 4, 0x100 | (1 << 5), 4
+            return True
+
+        dll.K32QueryWorkingSet.side_effect = query
+        with patch.object(ctypes, "get_last_error", return_value=24, create=True):
+            self.assertEqual(private_working_set(123, dll), 2 * mmap.PAGESIZE)
+        self.assertGreater(calls[1], calls[0])
+        dll.OpenProcess.assert_called_once_with(0x0410, False, 123)
+        dll.CloseHandle.assert_called_once_with(dll.OpenProcess.return_value)
+
+    def test_denied_access_and_query_failure_stay_unavailable(self):
+        from murmur.windows.process_memory import private_working_set
+        dll = MagicMock()
+        dll.OpenProcess.return_value = 0
+        self.assertIsNone(private_working_set(123, dll))
+        dll.K32QueryWorkingSet.assert_not_called()
+        dll.CloseHandle.assert_not_called()
+        dll.OpenProcess.return_value = 9
+        dll.K32QueryWorkingSet.return_value = False
+        with patch.object(ctypes, "get_last_error", return_value=5, create=True):
+            self.assertIsNone(private_working_set(123, dll))
+        dll.CloseHandle.assert_called_once_with(9)
+
+    def test_oversized_or_inconsistent_working_sets_stay_unavailable(self):
+        from murmur.windows.process_memory import private_working_set
+        for success in (False, True):
+            with self.subTest(success=success):
+                dll = MagicMock()
+
+                def query(handle, buffer, size):
+                    buffer[0] = 2**32
+                    return success
+
+                dll.K32QueryWorkingSet.side_effect = query
+                with patch.object(ctypes, "get_last_error", return_value=24, create=True):
+                    self.assertIsNone(private_working_set(123, dll))
+                self.assertEqual(dll.K32QueryWorkingSet.call_count, 1)
+                dll.CloseHandle.assert_called_once()
+
+
 @unittest.skipUnless(sys.platform == "win32", "native Windows APIs")
 class WindowsMemoryTests(unittest.TestCase):
     def test_current_process_counters(self):
@@ -100,6 +155,18 @@ class WindowsMemoryTests(unittest.TestCase):
         self.assertGreater(counters["commit_bytes"], 0)
         if counters["private_working_set_bytes"] is not None:
             self.assertGreater(counters["private_working_set_bytes"], 0)
+
+    def test_legacy_working_set_counts_a_touched_private_allocation(self):
+        from murmur.windows.process_memory import kernel, private_working_set
+        dll = kernel()
+        before = private_working_set(os.getpid(), dll)
+        self.assertIsNotNone(before)
+        allocation = bytearray(8 * 1024**2)
+        for offset in range(0, len(allocation), mmap.PAGESIZE):
+            allocation[offset] = 1
+        after = private_working_set(os.getpid(), dll)
+        self.assertIsNotNone(after)
+        self.assertGreaterEqual(after - before, 7 * 1024**2)
 
 
 if __name__ == "__main__":

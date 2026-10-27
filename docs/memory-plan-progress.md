@@ -26,6 +26,17 @@ See [the activation record](local-memory-activation.md) and
 [save/decode validation](replay-live-validation.md) for the clip-retention and
 duration fixes and verification scope. This does not clear the broader release gates below.
 
+**Windows update:** a native 8 GB Windows 10 VM now passes component storage
+and accounting checks. The generated-video buffer layer uses about 249 MiB
+private working set in RAM mode and 21 MiB in disk mode. Older Windows builds
+can now supply private working set through a bounded fallback. See
+[native Windows evidence and its limits](memory-plan-windows-validation.md).
+Whole-application, hardware-capture, pressure and soak acceptance remain open.
+The production Windows Python voice engine alone reaches about 549 MiB while
+waiting and 704 MiB during the public command fixture, exceeding the combined
+targets before the rest of Jarvis is included. Selecting and integrating the
+Windows recognition path remains necessary.
+
 | Delivery milestone | Position |
 | --- | --- |
 | Measurement and test infrastructure | Implemented; full workload/corpus evidence incomplete |
@@ -62,8 +73,11 @@ controller and settings when open. Worker-only results cannot pass them.
 
 The expanded wake grid reuses three public recordings with different gains and
 leading quiet. It adds timing coverage, not new speakers or a representative
-false-alarm rate. There are still no positive recordings of the actual custom
-Jarvis wake names in this campaign.
+false-alarm rate. The [first user-selected Jarvis command tail](memory-plan-real-audio.md)
+now adds one real recording. Production small.en and experimental tiny.en both
+recognize it in paced playback, while all three KWS arms miss it even with
+explicit trailing silence. Its wording is an ASR draft, and the older group
+recordings remain unlabeled. This does not complete acoustic acceptance.
 
 ## What remains, in order
 

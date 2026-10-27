@@ -1,12 +1,13 @@
 """Windows native counters. Imported only on Windows, only for diagnostics.
 
-PrivateUsage is commit, not private working set. EX2 supplies the latter on
-Windows 10/11 22H2 with the September 2023 update. Older systems return null
-for that counter rather than substituting total working set or private bytes.
+PrivateUsage is commit, not private working set. Prefer EX2 on newer Windows;
+older builds count non-shareable resident pages with QueryWorkingSet. Failed
+or inaccessible counters stay null instead of substituting another metric.
 See docs/memory-measurement.md for the Microsoft API references.
 """
 import ctypes as c
 from ctypes import wintypes as w
+import mmap
 
 
 class Entry(c.Structure):
@@ -37,10 +38,44 @@ def kernel():
         ("OpenProcess", [w.DWORD, w.BOOL, w.DWORD], w.HANDLE),
         ("CloseHandle", [w.HANDLE], w.BOOL),
         ("K32GetProcessMemoryInfo", [w.HANDLE, c.c_void_p, w.DWORD], w.BOOL),
+        ("K32QueryWorkingSet", [w.HANDLE, c.c_void_p, w.DWORD], w.BOOL),
     ):
         fn = getattr(dll, name)
         fn.argtypes, fn.restype = args, result
     return dll
+
+
+def private_working_set(pid, dll):
+    """Count resident, non-shareable pages when EX2 is unavailable.
+
+    QueryWorkingSet needs stronger access than GetProcessMemoryInfo. Denial,
+    repeated growth, or a working-set list beyond 16 MiB leaves the metric
+    unavailable. The bounded retry loop never changes the target's residency.
+    """
+    handle = dll.OpenProcess(0x0410, False, pid)  # QUERY_INFORMATION | VM_READ
+    if not handle:
+        return None
+    try:
+        slots = 4096
+        max_slots = 16 * 1024**2 // c.sizeof(c.c_size_t) - 1
+        for _ in range(4):
+            buffer = (c.c_size_t * (slots + 1))()
+            if dll.K32QueryWorkingSet(handle, buffer, c.sizeof(buffer)):
+                count = buffer[0]
+                if count > slots:
+                    return None
+                # PSAPI_WORKING_SET_BLOCK: 5 protection bits, 3 share-count
+                # bits, then Shared. A shareable page with one owner is still
+                # shared memory, not private working set.
+                return sum(not (buffer[i] & 0x100) for i in range(1, count + 1)) * mmap.PAGESIZE
+            if c.get_last_error() != 24:  # ERROR_BAD_LENGTH
+                return None
+            slots = max(slots * 2, buffer[0] + buffer[0] // 4 + 256)
+            if slots > max_slots:
+                return None
+        return None
+    finally:
+        dll.CloseHandle(handle)
 
 
 def processes():
@@ -78,11 +113,12 @@ def memory(pid):
             unavailable = (private == c.c_size_t(-1).value or private > counters.WorkingSetSize
                            or private == 0 < counters.WorkingSetSize)
             return {"commit_bytes": counters.PrivateUsage,
-                    "private_working_set_bytes": None if unavailable else private}
+                    "private_working_set_bytes": private_working_set(pid, dll) if unavailable else private}
         counters = Counters()
         counters.cb = c.sizeof(counters)
         if not dll.K32GetProcessMemoryInfo(handle, c.byref(counters), counters.cb):
             raise c.WinError(c.get_last_error())
-        return {"commit_bytes": counters.PrivateUsage, "private_working_set_bytes": None}
+        return {"commit_bytes": counters.PrivateUsage,
+                "private_working_set_bytes": private_working_set(pid, dll)}
     finally:
         dll.CloseHandle(handle)

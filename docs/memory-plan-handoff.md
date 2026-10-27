@@ -47,6 +47,41 @@ plan is not complete, and no Windows or whole-application release gate passes.**
 
 ## Latest continuation and next implementation step
 
+The user subsequently supplied a fresh command recording and authorized an
+8 GB Windows VM. The [selected final-five-second test](memory-plan-real-audio.md)
+now gives one real Jarvis command example: production small.en and explicit
+tiny.en both recognize the command in paced playback; all three KWS arms miss
+the wake at the unchanged threshold, including a trailing-silence control.
+Keep the exact wording provisional ASR evidence. Older group recordings remain
+unlabeled, and the reserved recordings remain held out. Private recordings,
+PCM and transcripts stay under ignored `build/memory-plan-corpus/`.
+
+The [native Windows report](memory-plan-windows-validation.md) records 51
+passing component tests and 12 passing updated accounting tests (overlapping
+scopes). A bounded QueryWorkingSet fallback makes private working set available
+on the older Windows build and agrees closely with independent PDH accounting.
+Three generated-video pairs use about 249 MiB private working set in RAM mode
+and 21 MiB in disk mode, excluding capture, voice, controller and settings.
+Full Linux Python validation passes 341 tests with 40 skips; CodeRabbit raises
+zero issues for the accounting diff. These are component results, not release
+acceptance.
+
+The Microsoft-checksum-verified Windows 10 VM now has a normally activated
+90-day evaluation, four CPUs and 8192 MiB RAM. Its network is restricted again
+after activation. It has no user recordings or host microphone connection.
+Ignored `build/memory-plan-windows-vm/` contains its private disk, credentials,
+test transport, job/results journal and bootstrap. Never print or commit the
+private state or seed files. `run_vm.py` boots the existing disk;
+`qmp_control.py` controls only this VM. The startup entry exists only inside
+the VM. Job `011-native-voice-baseline` has completed: the production Windows
+small.en/GTCRN engine reaches 549.28 MiB private working set while waiting and
+703.92 MiB during the public command fixture, already exceeding the combined
+budgets. The explicit Vosk-only control reaches 130.25 / 144.04 MiB, with much
+higher commit recorded separately; it disables accurate recognition and is not
+a proposed default. See the report and saved samples before starting another
+run. The selected final architecture, combined workloads,
+strict Linux disk cap, pressure and full soaks remain open.
+
 The [full-plan code review](memory-plan-code-review.md) follows the committed
 live replay fixes. It tightens soak sample coverage, bounds disk-helper I/O,
 reports retained Windows save failures and corrects related tests. Full Python
@@ -114,11 +149,12 @@ pressure, and three sequential 24-hour soaks. Final soaks alone require at
 least 72 hours after candidate readiness; there is no honest overall percentage
 or ETA while these gates remain open.
 
-Actual custom-name positives, confusables, speakers/accents, music/game/dialogue
-negatives, GTCRN interaction, real capture, Windows hardware, pressure, combined
-budgets and full-duration soak are still missing. Repeated fixtures do not add
-speakers or establish a general false-alarm rate. Do not integrate or promote
-either probe on the strength of these results.
+The first selected custom-name command and native Windows component results
+above do not complete the required corpus, confusables, speakers/accents,
+music/game/dialogue negatives, GTCRN/capture interaction, hardware, pressure,
+combined budgets or full-duration soak. Repeated fixtures do not add speakers
+or establish a general false-alarm rate. Do not integrate or promote either
+probe on the strength of these results.
 
 ## Work completed so far
 

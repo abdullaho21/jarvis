@@ -61,8 +61,10 @@ Linux, Rust controller and worker, measured live and in the benchmarks under
 Windows runs the Python service with Vosk and sherpa-onnx Whisper small.en,
 and keeps up to 256 MiB of encoded replay in RAM. An earlier review of the
 Python worker on Linux measured about 590 MiB PSS idle and 863–945 MiB peak
-during commands ([performance](performance.md)). **Windows itself has not been
-measured, and Linux numbers cannot establish Windows requirements.**
+during commands ([performance](performance.md)). Native Windows buffer
+components have now been measured in an 8 GB VM
+([validation](memory-plan-windows-validation.md)). Complete Windows application
+workloads remain unmeasured, and Linux numbers cannot establish their requirements.
 
 ## What went wrong
 

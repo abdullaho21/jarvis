@@ -20,17 +20,22 @@ All counters are **bytes**, per process and in `memory.totals`:
 | Platform | Counters | Collection |
 | --- | --- | --- |
 | Linux | `rss_bytes`, `pss_bytes` | `/proc/PID/smaps_rollup` |
-| Windows | `private_working_set_bytes`, `commit_bytes` | `K32GetProcessMemoryInfo` |
+| Windows | `private_working_set_bytes`, `commit_bytes` | `K32GetProcessMemoryInfo`, legacy `K32QueryWorkingSet` fallback |
 
 RSS sums can count shared pages in multiple processes; PSS apportions them.
 Windows private commit is not private working set. The latter uses
 [`PROCESS_MEMORY_COUNTERS_EX2`](https://learn.microsoft.com/en-us/windows/win32/api/psapi/ns-psapi-process_memory_counters_ex2),
 which requires Windows 10/11 22H2 with the September 2023 update. Earlier builds
-fall back to [`PROCESS_MEMORY_COUNTERS_EX`](https://learn.microsoft.com/en-us/windows/win32/api/psapi/ns-psapi-process_memory_counters_ex)
-for commit and report private working set as `null`. A failed or inaccessible
+use [`QueryWorkingSet`](https://learn.microsoft.com/en-us/windows/win32/api/psapi/nf-psapi-queryworkingset)
+to count resident pages whose [Shared bit is clear](https://learn.microsoft.com/en-us/windows/win32/api/psapi/ns-psapi-psapi_working_set_block),
+and [`PROCESS_MEMORY_COUNTERS_EX`](https://learn.microsoft.com/en-us/windows/win32/api/psapi/ns-psapi-process_memory_counters_ex)
+for commit. The fallback needs query/read access and permits four attempts and
+at most a 16 MiB page-list buffer. Denial, repeated growth or an oversized list
+leaves private working set unavailable; it does not trim the target. A failed or inaccessible
 counter makes its total `null` and `complete` false. It never silently counts
-as zero. Native Windows tests are included in the Windows CI job; they have
-not been executed on this Linux host.
+as zero. Native Windows tests are included in the Windows CI job. The
+[8 GB KVM validation](memory-plan-windows-validation.md) now records actual
+Windows execution, legacy-counter checks and component buffer measurements.
 
 The status snapshot covers the service and descendants found in the OS process
 inventory: workers, capture children, replay, and any settings process started
