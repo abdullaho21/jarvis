@@ -19,12 +19,15 @@ These counts describe coverage and acceptance, not the share of effort spent.
 A single completion percentage would be misleading: resolving the remaining
 candidate failures can change the integration work required.
 
-**Local activation update:** the user has now opted into disk replay on the
-running Linux installation, preserving 120-second HDR history and audio with
-a 2048 MiB disk stop threshold. The recognition experiments remain disabled.
-See [the activation record](local-memory-activation.md) and
-[save/decode validation](replay-live-validation.md) for the clip-retention and
-duration fixes and verification scope. This does not clear the broader release gates below.
+**Priority update:** the user has set Windows work aside and deferred further
+optional disk-replay optimization because of continuous SSD writes. The local
+installation has been restored to **RAM replay**, preserving 120-second HDR
+history and both audio sources. Disk mode remains available as an explicit
+opt-in. See [current settings and historical disk evidence](local-memory-activation.md).
+The immediate focus is the everyday voice path: waiting memory, command peaks,
+wake reliability and latency. The recognition experiments remain disabled.
+Published fixes include the earlier clip-retention and duration corrections;
+see [save/decode validation](replay-live-validation.md).
 
 **Windows update:** a native 8 GB Windows 10 VM now passes component storage
 and accounting checks. The generated-video buffer layer uses about 249 MiB
@@ -35,7 +38,8 @@ Whole-application, hardware-capture, pressure and soak acceptance remain open.
 The production Windows Python voice engine alone reaches about 549 MiB while
 waiting and 704 MiB during the public command fixture, exceeding the combined
 targets before the rest of Jarvis is included. Selecting and integrating the
-Windows recognition path remains necessary.
+Windows recognition path remains necessary for eventual Windows acceptance;
+that work is currently deferred, with its failures preserved.
 
 | Delivery milestone | Position |
 | --- | --- |
@@ -52,7 +56,7 @@ Windows recognition path remains necessary.
 | --- | --- | --- |
 | **1. Measure memory and recognition** | Linux/Windows accounting code; application sampler; recognition and soak runners; isolated Linux baseline | Full real-audio corpus, real combined workloads, Windows hardware results, CPU/latency and soak evidence |
 | **2. Fix missed wakes** | Rust/Python quiet-boundary reset; repeated background → quiet → wake fixture recovery | Broader recognition and Windows acceptance |
-| **3. Move replay buffering to disk** | Opt-in disk mode, private Rust segment store, cleanup/save handling, Windows RAM cap and platform adapters; synthetic savings measured | Strict Linux recorder byte bounds and real capture/storage acceptance on both platforms |
+| **3. Optional replay storage (deferred)** | Opt-in disk mode, private Rust segment store, cleanup/save handling, Windows RAM cap and platform adapters; synthetic savings measured | Strict Linux recorder byte bounds and real capture/storage acceptance on both platforms |
 | **4. Explain retained memory** | Vosk history attribution; disabled finalization trial; isolated worker teardown, reader ownership, allocation/cache and pressure controls | Full live-workload explanation where needed, broader pressure and long-duration growth acceptance; experimental policies remain unadopted |
 | **5. Reduce second-pass recognition work** | Disabled Vosk agreement fast path avoids Whisper on exact fixture commands and lowers memory | Forced cold-fallback latency regresses; full acoustic acceptance is incomplete |
 | **6. Trial smaller models and wake detection** | Rust tiny/base/small Whisper profiles; configurable keyword detector; buffered on-demand command worker; continuous recovery controls | Wake timing/recognition tradeoff; validate the chosen smaller recognizer; select and integrate the final architecture |
@@ -78,6 +82,9 @@ now adds one real recording. Production small.en and experimental tiny.en both
 recognize it in paced playback, while all three KWS arms miss it even with
 explicit trailing silence. Its wording is an ASR draft, and the older group
 recordings remain unlabeled. This does not complete acoustic acceptance.
+The subsequent [PocketSphinx screen](pocketsphinx-wake-screen.md) detects the
+original tail at about 53 MiB, but fails 18/63 expanded case repetitions. It
+also remains unaccepted; no production wake/model setting has changed.
 
 ## What remains, in order
 
@@ -89,24 +96,22 @@ recordings remain unlabeled. This does not complete acoustic acceptance.
    together. Validate the chosen command recognizer. The fast path has a cold
    fallback delay; base.en has unresolved reference discrepancies if it is
    retained as a candidate. Tiny.en's fixture results need broader validation.
-3. **Finish replay bounds.** Linux disk supervision can overshoot between
-   polls. Its current minimum disk budget is 512 MiB because of recorder file
-   granularity. Windows has a RAM cap; Linux GSR RAM mode has no byte cap, and
-   the earlier recorder-RSS stop was removed. These limits need explicit
-   acceptance rather than being counted as a completed strict quota.
-4. **Integrate the selected components and settle the Windows runtime path.**
+3. **Integrate the selected voice components on Linux.**
    Verify wake/command buffering, cancellation, recovery, denoising and capture
    together, including GTCRN interaction.
-5. **Pass combined application and platform gates.** Measure replay off/on,
-   settings open and command peaks, plus CPU/latency and pressure on an 8 GB
-   Windows machine or VM and the corresponding Linux workloads.
-6. **Run three sequential 24-hour soaks.** Apply the stated warm-up, growth
+4. **Pass combined Linux application gates.** Measure replay off/on,
+   settings open and command peaks, plus CPU/latency and pressure. Windows
+   runtime integration and 8 GB platform acceptance remain deferred.
+5. **Run three sequential 24-hour soaks.** Apply the stated warm-up, growth
    tolerance and recognition checks to the integrated candidate. Investigate
    failures and repeat affected acceptance runs.
 
-Steps 1–3 have independent work that can proceed before integration. The final
-soak campaign depends on candidate readiness and suitable platform/workload
-coverage.
+Optional disk replay is outside the current critical path. Its Linux stop
+threshold can overshoot between polls; the minimum is 512 MiB because of
+recorder file granularity. Linux GSR RAM mode has no byte cap. These limitations
+remain documented and unpassed; deferring them is not strict-quota acceptance.
+The final soak campaign depends on candidate readiness and suitable workload
+coverage. Deferred Windows gates still apply before any Windows release claim.
 
 ## How much time is left?
 

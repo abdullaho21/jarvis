@@ -9,14 +9,12 @@ plan is not complete, and no Windows or whole-application release gate passes.**
 
 - Workspace: `/home/silver/Documents/ChatGPT/New project`; canonical directory:
   `/home/silver/Projects/jarvis`. These refer to the same checkout.
-- HEAD when this handoff was drafted: `62142a1` (`Record that load-cycle memory
-  growth is bounded`). The campaign then had uncommitted source, test and
-  evidence files. The user subsequently requested a local commit on
-  2026-10-27; inspect `git log` and `git status` for the current state. Preserve
-  any remaining changes. Git metadata is read-only in the normal sandbox, so
-  Git writes require approved execution. No push, PR, new chat or service
-  restart was performed during that original campaign. Later authorized live
-  replay validation deployed tested controller fixes and restarted the service.
+- All four memory-plan commits through `30cfab6` were pushed to GitHub branch
+  `codex/brightness-wake-controls` at the user's request on 2026-10-27. Inspect
+  `git log` and `git status` for newer work and preserve any changes. Current
+  execution permits filesystem/network writes without an approval prompt.
+  No PR or new chat was created. Earlier authorized live replay validation
+  deployed tested controller fixes and restarted the service.
 - Use the canonical workspace as the command working directory and a non-login
   shell (`login:false`) so shell startup does not change directories.
 - No `AGENTS.md` was found. A later REA validation subagent added replay-save
@@ -29,7 +27,7 @@ plan is not complete, and no Windows or whole-application release gate passes.**
   `native.vosk_fast_path` and `native.vosk_finalize_utterances` default false
   and are omitted by normal controllers. Smaller Whisper profiles require
   explicit experimental files. The separate KWS probe is not integrated.
-- Subsequent user authorization on 2026-10-27 enabled the implemented disk
+- Earlier user authorization on 2026-10-27 enabled the implemented disk
   replay mode in the live Linux installation: 120 seconds, existing HDR/audio,
   2048 MiB supervised disk stop threshold. The initial setting change did not
   restart the controller; saving settings reloaded its voice worker. A 125-second live observation
@@ -45,7 +43,28 @@ plan is not complete, and no Windows or whole-application release gate passes.**
   evidence. See [live replay validation](replay-live-validation.md) for the
   final live result and its limits. Clips remain local in the user's Clips folder.
 
-## Latest continuation and next implementation step
+## Current priorities — user direction on 2026-10-27
+
+**Windows work is set aside.** The VM is stopped; preserve its evidence and
+private state. **Further optional disk-replay optimization is deferred** because
+the user raised continuous SSD write costs. Do not resume strict-quota work
+as the next action. At the user's explicit request, local replay was restored
+to RAM through the configuration API, changing only `replay.storage`. The
+controller remained running; 120 seconds, HDR and both audio sources were
+preserved. Replay is on and no disk sessions remain. See the
+[current local record](local-memory-activation.md). Do not turn disk replay
+back on without a new request.
+
+Focus on everyday voice waiting memory, command peaks, wake reliability and
+latency. Keep production Vosk/small.en and failed candidate gates unchanged.
+The [fixed PocketSphinx screen](pocketsphinx-wake-screen.md) is now complete:
+it detects the original Jarvis tail, but expanded quiet/interrupted controls
+fail (45/63 cases, 24/42 intended wakes). Peak RSS is at most 53.22 MiB and
+isolated paced silence CPU 0.0557–0.0663% of one core. Do not port/integrate
+this failed configuration or tune it to the selected recording. No matched
+Vosk comparison or end-to-end latency acceptance is established.
+
+## Latest evidence and next implementation step
 
 The user subsequently supplied a fresh command recording and authorized an
 8 GB Windows VM. The [selected final-five-second test](memory-plan-real-audio.md)
@@ -143,9 +162,10 @@ justify native allocation stacks; no leak-freedom/plateau claim exists.
 
 The [current six-step status](memory-plan.md#current-position--2026-10-27)
 separates implemented foundations from acceptance. Significant work remains:
-full corpus, regression resolution and candidate choice, strict Linux replay
-byte bounds, integration, GTCRN/real capture, combined workloads, Windows/8 GB
-pressure, and three sequential 24-hour soaks. Final soaks alone require at
+full corpus, regression resolution and candidate choice, voice integration,
+GTCRN/real capture, combined Linux workloads and pressure, and three sequential
+24-hour soaks. Strict Linux replay byte bounds and Windows/8 GB acceptance
+remain unpassed and deferred by the user. Final soaks alone require at
 least 72 hours after candidate readiness; there is no honest overall percentage
 or ETA while these gates remain open.
 
@@ -401,17 +421,17 @@ an unresolved question. Preserve expected nonzero acoustic-gate results.
 
 ## Resume prompt
 
-> Continue the Jarvis memory plan from docs/memory-plan-handoff.md. Preserve
-> all uncommitted work, production defaults and saved baselines. Read
-> docs/kws-alignment.md: model-derived 320 ms alignment removes later triggers
-> for 253 jointly detected ungated/candidate phase cases, but misses one wake
-> caught by the original gate. Keep the 287/288 candidate failure and 35
-> expanded ungated misses visible. Exact original/cropped inputs reproduce
-> native stream-context sensitivity without gate execution. Do not tune to
-> the failed public file; design any next context-preserving candidate with
-> a declared recognition/timing/CPU/memory protocol. Prior reader/cache and
-> OOM evidence remains scoped; no allocator tunable is adopted. Continue
-> candidate selection and missing corpus/platform evidence, then integration,
-> whole-app/Windows/pressure and three sequential 24-hour soaks. Strict Linux
-> replay byte bounds also remain open. Do not start real capture, repeat
-> unchanged matrices, or claim full acceptance from public-file controls.
+> Continue the Jarvis memory plan from docs/memory-plan-handoff.md. Respect
+> the user's current priorities: Windows is set aside, further optional disk
+> optimization is deferred, and the live installation is back on RAM replay.
+> Focus on voice waiting/command memory, wake reliability and latency. Preserve
+> production defaults, private recordings and saved failed baselines. All KWS
+> arms miss the selected real Jarvis tail; model-derived alignment also retains
+> a failed recognition gate. The completed PocketSphinx screen also fails
+> expanded recognition; do not repeat it unchanged or port its failed settings.
+> Assess further candidates only at declared fixed settings with representative
+> labels, and do not tune to the selected recording.
+> Continue missing corpus evidence, architecture selection, voice integration,
+> whole-application Linux/pressure and three sequential 24-hour soaks. Deferred
+> Windows and strict-disk-quota gates remain unpassed. Do not start real capture,
+> repeat unchanged matrices, or infer full acceptance from public-file controls.

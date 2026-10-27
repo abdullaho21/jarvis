@@ -25,17 +25,26 @@ latency regressions.
 | --- | --- | --- |
 | 1. Measure and gate | Process accounting, application sampler, recognition runner and soak runner | Full real acoustic corpus, whole-app workloads and Windows measurements |
 | 2. Missed wake | Quiet-boundary reset and repeated fixture recovery | Broader acoustic and Windows acceptance |
-| 3. Replay | Opt-in disk storage, RAM cap, cleanup and synthetic buffer measurements | Strict Linux recorder byte cap; real Linux/Windows capture, quota and failure evidence |
+| 3. Optional replay (deferred) | Opt-in disk storage, RAM cap, cleanup and synthetic buffer measurements | Strict Linux recorder byte cap; real Linux/Windows capture, quota and failure evidence |
 | 4. Retained memory | Vosk history attribution, disabled finalization trial, isolated child ownership and pressure/cache diagnostics | Full live-floor attribution where needed, broader pressure and long-run acceptance |
 | 5. Fast path | Disabled exact-agreement experiment with measured savings | Resolve cold-fallback latency regression and pass the full corpus |
 | 6. Models and wake | Rust Whisper profiles and isolated KWS/buffered command probes | Resolve detector timing/recognition tradeoff, validate chosen smaller recognizer, then select and integrate the architecture |
 
-The next bounded experiment investigates detector stream context without
-tuning to individual recordings. Model-derived chunk alignment is now tested;
-its remaining missed-wake gate is described in [the alignment report](kws-alignment.md).
-The previous small.en command-memory failure and base.en reference discrepancy
-remain open; tiny.en fixture success does not establish full-corpus acceptance.
-No new allocator policy or production model change has been adopted.
+The user has set Windows work aside and deferred further optional replay
+storage optimization because of continuous SSD writes. The local installation
+is back on RAM replay with its existing 120-second HDR/audio settings. Disk
+mode remains opt-in. Strict Linux disk quotas remain unpassed and outside the
+current critical path; see [local settings](local-memory-activation.md).
+
+The next work focuses on the everyday voice path: waiting memory, command
+peaks, wake reliability and latency. Model-derived KWS chunk alignment is
+already tested and remains unaccepted; see [the alignment report](kws-alignment.md).
+The selected real Jarvis command is also missed by all KWS arms. The subsequent
+[fixed PocketSphinx screen](pocketsphinx-wake-screen.md) detects the original
+Jarvis tail but fails expanded quiet/interrupted recognition controls. Neither
+wake candidate is accepted for integration. Small.en's command-memory
+failure and base.en's reference discrepancy remain open; tiny.en needs broader
+acoustic evidence. No production model or allocator change is adopted.
 
 After candidate selection, the remaining work includes integration, GTCRN and
 capture interaction, combined budgets, Windows/8 GB pressure, and **three
@@ -184,7 +193,7 @@ This is not a full recognition-suite or Windows sign-off.
 - Done when the no-noise test passes repeatedly and the unrelated-speech
   tests show no new false wakes.
 
-### Step 3 — replay on disk
+### Step 3 — optional replay on disk (further optimization deferred)
 
 Implementation added 2026-10-26: explicit RAM/Disk controls, a shared Rust
 private-session/segment store, native Linux GSR disk integration and a thin
@@ -199,8 +208,13 @@ replay length only, as before this step. See
 [measurement details](memory-measurement.md#replay-storage-step-3) and
 [privacy/limits](recording.md#replay-storage-and-privacy).
 
-Clearest expected saving (160–450 MiB while replay runs) with no recognition
-risk. Requirements:
+This trades retained RAM for continuous encoded writes. Users who do not use
+replay receive no saving; the write cost depends on bitrate and time enabled.
+At a constant encoded bitrate of B Mbit/s, logical buffer writes are about
+0.45 × B GB/hour, excluding filesystem overhead and save copies. This is a
+rate calculation, not an SSD lifetime prediction. RAM remains the default.
+Further storage optimization is deferred by the user. Requirements for any
+future disk-storage acceptance remain:
 
 - bounded disk usage (time and size caps); cleanup of stale buffer files after
   a crash, at the next start; clear errors and a safe stop when the disk is
@@ -215,7 +229,8 @@ risk. Requirements:
   mode;
 - Linux: gpu-screen-recorder's `-replay-storage disk`. Windows: write the
   one-second segments to the buffer directory instead of RAM.
-- SSD writes equal the bitrate (~1 GB/h desktop, ~10 GB/h games); state it.
+- Document measured write rates for the tested workload and time enabled; do
+  not infer device endurance or typical-user costs from one desktop capture.
 
 ### Step 4 — find the per-command growth, then decide allocator or process
 
