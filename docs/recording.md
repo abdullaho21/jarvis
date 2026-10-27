@@ -206,8 +206,16 @@ therefore always reaches at least 256 MiB, plus the replay length at the current
 bitrate, whatever the replay length. Jarvis refuses to start disk replay with a
 budget below **512 MiB**; long or high-bitrate replays need about 256 MiB plus
 `seconds × Mbps ÷ 8` MB. Files needed by an in-progress save are retained.
-Jarvis uses `-replay-storage disk`, a private `-o` buffer directory and
-`-ro` for saved clips. It never evicts backend-owned files during a save.
+Jarvis uses `-replay-storage disk` and a private `-o` buffer directory.
+GSR also writes completed replays there; `-ro` controls regular recording
+during replay, not saved replay clips. Jarvis publishes each completed clip
+into the normal Clips directory before verification or buffer cleanup, without
+overwriting existing clips. Cross-filesystem destinations use a private staged
+copy. If that destination is unavailable, a recovery file is retained outside
+the disposable session and its path is reported. Jarvis explicitly requests
+the configured number of seconds when saving: omitting it asks GSR to save
+the entire buffer, which can contain older footage because of file granularity.
+It never evicts backend-owned files during a save.
 GSR provides a time window but no configurable total-byte cap. Jarvis checks
 buffer size and available space every **250 ms**, stops on a reached budget or
 less than 16 MiB free, and recognizes buffer-write failures from stderr.

@@ -19,6 +19,13 @@ These counts describe coverage and acceptance, not the share of effort spent.
 A single completion percentage would be misleading: resolving the remaining
 candidate failures can change the integration work required.
 
+**Local activation update:** the user has now opted into disk replay on the
+running Linux installation, preserving 120-second HDR history and audio with
+a 2048 MiB disk stop threshold. The recognition experiments remain disabled.
+See [the activation record](local-memory-activation.md) and
+[save/decode validation](replay-live-validation.md) for the clip-retention and
+duration fixes and verification scope. This does not clear the broader release gates below.
+
 | Delivery milestone | Position |
 | --- | --- |
 | Measurement and test infrastructure | Implemented; full workload/corpus evidence incomplete |

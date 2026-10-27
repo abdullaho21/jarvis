@@ -462,6 +462,8 @@ class ControllerServiceTests(unittest.TestCase):
         self.assertEqual(argv[argv.index("-a") + 1], "default_output|default_input")
         saved = h.rpc("replay_save"); self.assertTrue(saved["ok"], saved)
         self.assertTrue(Path(h.status()["replay"]["file"]).exists())
+        requests = [e["request"] for e in h.events("gpu-screen-recorder") if e.get("event") == "ipc_request"]
+        self.assertEqual(requests, [{"id": 1, "name": "save-replay", "data": {"seconds": 120}}])
         changed = h.rpc("config")["config"]; changed["replay"]["seconds"] = 60
         self.assertFalse(h.rpc("save_config", config=changed)["ok"])
         self.assertTrue(h.rpc("replay_stop")["ok"])
@@ -475,9 +477,13 @@ class ControllerServiceTests(unittest.TestCase):
         self.assertEqual(argv[argv.index("-replay-storage") + 1], "disk")
         buffer = Path(argv[argv.index("-o") + 1])
         self.assertEqual(buffer.stat().st_mode & 0o777, 0o700)
-        self.assertEqual(Path(argv[argv.index("-ro") + 1]), h.root / "videos")
+        self.assertNotIn("-ro", argv)
         self.assertTrue(h.rpc("replay_save")["ok"])
         clip = Path(h.status()["replay"]["file"])
+        self.assertEqual(clip.parent, h.root / "videos")
+        self.assertEqual(clip.read_bytes(), b"fake replay 1")
+        requests = [e["request"] for e in h.events("gpu-screen-recorder") if e.get("event") == "ipc_request"]
+        self.assertEqual(requests, [{"id": 1, "name": "save-replay", "data": {"seconds": 120}}])
         for key, value in (("storage", "ram"), ("max_mb", 1024), ("buffer_dir", str(h.root / "other"))):
             changed = h.rpc("config")["config"]
             changed["replay"][key] = value
@@ -485,6 +491,127 @@ class ControllerServiceTests(unittest.TestCase):
         self.assertTrue(h.rpc("replay_stop")["ok"])
         self.assertFalse(buffer.exists())
         self.assertTrue(clip.exists())
+
+    def test_replay_save_requests_configured_seconds_after_each_start(self):
+        for storage in ("ram", "disk"):
+            with self.subTest(storage=storage):
+                h = self.start(dry_run=False, config_patch={"replay": {"storage": storage, "seconds": 30, "max_mb": 512}})
+                for starts, seconds in enumerate((30, 60), 1):
+                    if seconds != 30:
+                        changed = h.rpc("config")["config"]
+                        changed["replay"]["seconds"] = seconds
+                        self.assertTrue(h.rpc("save_config", config=changed)["ok"])
+                    self.assertTrue(h.rpc("replay_start")["ok"])
+                    # The old socket pathname can survive a stopped fake;
+                    # wait until the new backend has actually rebound it.
+                    h.wait(lambda: sum(e.get("event") == "ipc_ready" for e in h.events("gpu-screen-recorder")) == starts)
+                    result = h.rpc("replay_save")
+                    self.assertTrue(result["ok"], result)
+                    requests = [e["request"] for e in h.events("gpu-screen-recorder") if e.get("event") == "ipc_request"]
+                    self.assertEqual(requests[-1], {"id": 1, "name": "save-replay", "data": {"seconds": seconds}})
+                    self.assertTrue(h.rpc("replay_stop")["ok"])
+                self.assertEqual([request["data"]["seconds"] for request in requests], [30, 60])
+
+    def test_disk_replay_repeated_backend_names_never_overwrite_saved_clips(self):
+        h = self.start(dry_run=False, config_patch={"replay": {"storage": "disk", "max_mb": 512}})
+        folder = h.root / "videos"
+        folder.mkdir()
+        existing = folder / "Replay_test.mp4"
+        existing.write_bytes(b"previous user clip")
+        self.assertTrue(h.rpc("replay_start")["ok"])
+        h.wait(lambda: (h.socket.parent / "replay.sock").exists())
+        clips = []
+        for index in (1, 2):
+            saved = h.rpc("replay_save")
+            self.assertTrue(saved["ok"], saved)
+            clip = Path(h.status()["replay"]["file"])
+            self.assertEqual(clip.parent, folder)
+            self.assertNotIn(clip, [existing, *clips])
+            self.assertEqual(clip.read_bytes(), f"fake replay {index}".encode())
+            clips.append(clip)
+        self.assertTrue(h.rpc("replay_stop")["ok"])
+        self.assertEqual(existing.read_bytes(), b"previous user clip")
+        self.assertEqual([clip.read_bytes() for clip in clips], [b"fake replay 1", b"fake replay 2"])
+
+    def test_disk_replay_invalid_hdr_clip_survives_verification_and_cleanup(self):
+        h = self.start(dry_run=False, config_patch={"replay": {"storage": "disk", "max_mb": 512}},
+                       MURMUR_TEST_COLOR="hdr", MURMUR_TEST_BAD_HDR="1")
+        self.assertTrue(h.rpc("replay_start")["ok"])
+        h.wait(lambda: (h.socket.parent / "replay.sock").exists())
+        result = h.rpc("replay_save")
+        self.assertFalse(result["ok"], result)
+        self.assertIn("HDR verification failed", result["error"])
+        clips = list((h.root / "videos").glob("*.mp4"))
+        self.assertEqual(len(clips), 1)
+        clip = clips[0]
+        self.assertIn(str(clip), result["error"])
+        self.assertEqual(clip.read_bytes(), b"fake replay 1")
+        self.assertTrue(h.rpc("replay_stop")["ok"])
+        self.assertEqual(clip.read_bytes(), b"fake replay 1")
+        self.assertEqual(list((h.root / "data/murmur/replay-buffer").glob("session-*")), [])
+
+    def test_disk_replay_publishes_to_a_different_filesystem(self):
+        shared_memory = Path("/dev/shm")
+        if not shared_memory.is_dir() or not os.access(shared_memory, os.W_OK):
+            self.skipTest("a private writable tmpfs destination is unavailable")
+        with tempfile.TemporaryDirectory(prefix="jarvis-replay-clips-", dir=shared_memory) as directory:
+            folder = Path(directory)
+            h = self.start(dry_run=False, config_patch={"replay": {"storage": "disk", "max_mb": 512}})
+            if folder.stat().st_dev == h.root.stat().st_dev:
+                self.skipTest("the clip and disk-buffer filesystems are identical")
+            changed = h.rpc("config")["config"]
+            changed["recording"]["output_dir"] = str(folder)
+            self.assertTrue(h.rpc("save_config", config=changed)["ok"])
+            self.assertTrue(h.rpc("replay_start")["ok"])
+            h.wait(lambda: (h.socket.parent / "replay.sock").exists())
+            event = next(e for e in h.events("gpu-screen-recorder") if "-ipc" in e["args"])
+            session = Path(event["args"][event["args"].index("-o") + 1])
+            self.assertNotEqual(session.stat().st_dev, folder.stat().st_dev)
+            result = h.rpc("replay_save")
+            self.assertTrue(result["ok"], result)
+            clip = Path(h.status()["replay"]["file"])
+            self.assertEqual(clip.parent, folder)
+            self.assertEqual(clip.read_bytes(), b"fake replay 1")
+            self.assertEqual(clip.stat().st_mode & 0o777, 0o600)
+            self.assertTrue(h.rpc("replay_stop")["ok"])
+            self.assertFalse(session.exists())
+            self.assertEqual(clip.read_bytes(), b"fake replay 1")
+
+    def test_disk_replay_clip_survives_recorder_exit_during_verification(self):
+        for reason in ("pressure", "exit"):
+            with self.subTest(reason=reason):
+                h = self.start(dry_run=False, config_patch={"replay": {"storage": "disk", "max_mb": 512}},
+                               MURMUR_TEST_VERIFY_DELAY="1.2")
+                self.assertTrue(h.rpc("replay_start")["ok"])
+                h.wait(lambda: (h.socket.parent / "replay.sock").exists())
+                event = next(e for e in h.events("gpu-screen-recorder") if "-ipc" in e["args"])
+                session = Path(event["args"][event["args"].index("-o") + 1])
+                results = []
+                thread = threading.Thread(target=lambda: results.append(h.rpc("replay_save")))
+                thread.start()
+                self.addCleanup(thread.join)
+                h.wait(lambda: bool(h.events("ffprobe")))
+                if reason == "pressure":
+                    # Sparse data triggers supervision without allocating 513 MiB.
+                    with (session / "gsr-replay-fake.gsr/Replay_0.gsr").open("r+b") as stream:
+                        stream.truncate(513 * 1024**2)
+                else:
+                    os.kill(event["pid"], signal.SIGTERM)
+                h.wait(lambda: exited(event["pid"]))
+                thread.join(timeout=5)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(len(results), 1)
+                self.assertTrue(results[0]["ok"], results)
+                h.wait(lambda: not session.exists())
+                status = h.status()["replay"]
+                self.assertEqual(status["state"], "error")
+                if reason == "pressure":
+                    self.assertIn("size budget", status["message"])
+                clip = Path(status["file"])
+                self.assertEqual(clip.parent, h.root / "videos")
+                self.assertEqual(clip.read_bytes(), b"fake replay 1")
+                self.assertTrue(h.rpc("replay_stop")["ok"])
+                self.assertEqual(clip.read_bytes(), b"fake replay 1")
 
     def test_disk_budget_and_write_failure_stop_only_the_owned_recorder(self):
         # The fake buffer file is sparse, so this needs no real disk space.

@@ -14,7 +14,7 @@ use std::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufReader},
     net::UnixStream,
-    sync::{mpsc, watch},
+    sync::{mpsc, watch, RwLock},
     time::{timeout, Duration},
 };
 
@@ -207,6 +207,10 @@ pub struct Capture {
     color: String,
     codec: Option<String>,
     ipc: PathBuf,
+    replay_output: Option<PathBuf>,
+    replay_session: Option<PathBuf>,
+    replay_seconds: u64,
+    replay_cleanup: Arc<RwLock<()>>,
 }
 impl Capture {
     pub fn new(replay: bool, ipc: PathBuf) -> Self {
@@ -223,6 +227,10 @@ impl Capture {
             color: "sdr".into(),
             codec: None,
             ipc,
+            replay_output: None,
+            replay_session: None,
+            replay_seconds: 120,
+            replay_cleanup: Arc::new(RwLock::new(())),
         }
     }
     pub fn snapshot(&self) -> Value {
@@ -318,8 +326,8 @@ impl Capture {
             None
         };
         if budget.as_ref().is_some_and(|b| b.disk.is_some()) {
-            // 6.1.5 is the inspected implementation: -o holds the buffer and
-            // -ro independently chooses the destination for saved clips.
+            // GSR saves replay clips beside -o too. The controller publishes
+            // completed clips outside this disposable directory before verify.
             let version = util::query(&[backend.into(), "--version".into()], 3).await?;
             let numbers: Vec<u32> = version
                 .trim()
@@ -333,16 +341,12 @@ impl Capture {
         let mut argv = if self.replay {
             util::private_dir(self.ipc.parent().ok_or("Invalid replay socket")?)?;
             let buffer = budget.as_ref().and_then(|b| b.disk.as_ref());
-            let mut a = replay_command(
+            replay_command(
                 cfg,
                 &self.ipc,
                 buffer.map(|s| s.path.as_path()).unwrap_or(&folder),
                 &self.color,
-            );
-            if buffer.is_some() {
-                a.extend(["-ro".into(), folder.to_string_lossy().into()]);
-            }
-            a
+            )
         } else {
             if let Some(pid) = orphaned().first() {
                 return err(format!("A recorder from an earlier Murmur session is still running (PID {pid}). Stop it with: kill -INT {pid}"));
@@ -558,6 +562,13 @@ impl Capture {
             },
             staging.as_deref(),
         );
+        self.replay_output = self.replay.then(|| folder.clone());
+        self.replay_seconds = cfg["replay"]["seconds"].as_u64().unwrap_or(120);
+        self.replay_session = budget
+            .as_ref()
+            .and_then(|b| b.disk.as_ref())
+            .map(|s| s.path.clone());
+        let replay_cleanup = self.replay_cleanup.clone();
         self.task = Some(tokio::spawn(async move {
             let pressure = async {
                 let Some(budget) = budget.as_ref() else {
@@ -598,10 +609,22 @@ impl Capture {
                 }
             };
             if replay {
-                // Keep the lease until the owned recorder has exited, then
-                // remove all unsaved bytes, including after a forced stop.
+                let mut update = if requested {
+                    json!({"state":"off","message":"Instant replay is off.","file":null})
+                } else {
+                    json!({"state":"error","message":failure.unwrap_or_else(|| format!("Instant replay stopped (status {:?}). {}",code,String::from_utf8_lossy(&tail).trim().chars().take(800).collect::<String>())),"file":status.borrow()["file"]})
+                };
+                // Expose failure immediately, but let an in-flight save finish
+                // publication/verification before removing its source session.
+                if !requested {
+                    status.send_replace(update.clone());
+                }
+                let _cleanup = replay_cleanup.write().await;
                 drop(budget);
-                status.send_replace(if requested{json!({"state":"off","message":"Instant replay is off.","file":null})}else{json!({"state":"error","message":failure.unwrap_or_else(|| format!("Instant replay stopped (status {:?}). {}",code,String::from_utf8_lossy(&tail).trim().chars().take(800).collect::<String>())),"file":null})});
+                if !requested {
+                    update["file"] = status.borrow()["file"].clone();
+                }
+                status.send_replace(update);
                 return;
             }
             let partial = staging.unwrap();
@@ -678,6 +701,10 @@ impl Capture {
         if !self.replay || !self.active() {
             return err("Instant replay is off. Say “start replay” first.");
         }
+        let save_guard = Arc::new(self.replay_cleanup.clone().read_owned().await);
+        if !self.active() {
+            return err("Instant replay stopped before saving.");
+        }
         let previous = self.snapshot();
         self.set(
             "on",
@@ -689,9 +716,11 @@ impl Capture {
             let mut stream = UnixStream::connect(&self.ipc).await.map_err(|e| {
                 format!("Instant replay is still starting; try again in a moment. {e}")
             })?;
-            stream
-                .write_all(b"{\"id\":1,\"name\":\"save-replay\"}\n")
-                .await?;
+            let mut command = serde_json::to_vec(&json!({
+                "id":1,"name":"save-replay","data":{"seconds":self.replay_seconds}
+            }))?;
+            command.push(b'\n');
+            stream.write_all(&command).await?;
             let bytes = util::line(&mut BufReader::new(stream), 65536)
                 .await?
                 .ok_or("Instant replay did not answer")?;
@@ -699,7 +728,25 @@ impl Capture {
             if reply["result"] != "ok" || !reply["data"].is_string() {
                 return err(format!("Replay not saved: {}", reply["data"]));
             }
-            let output = PathBuf::from(reply["data"].as_str().unwrap());
+            let mut output = PathBuf::from(reply["data"].as_str().unwrap());
+            if let Some(session) = &self.replay_session {
+                let session = session.clone();
+                let folder = self
+                    .replay_output
+                    .clone()
+                    .ok_or("Missing replay clip destination")?;
+                let publication_guard = save_guard.clone();
+                let retained = tokio::task::spawn_blocking(move || {
+                    let _guard = publication_guard;
+                    crate::replay_clip::retain(&output, &folder, &session)
+                })
+                .await??;
+                output = retained.path;
+                path = Some(output.clone());
+                if let Some(error) = retained.error {
+                    return err(error);
+                }
+            }
             path = Some(output.clone());
             verify(&output, &self.color, self.codec.as_deref()).await?;
             Ok::<_, crate::Error>(output)
@@ -736,13 +783,23 @@ impl Capture {
                     Ok(Err(e)) => e.to_string(),
                     _ => "Instant replay did not answer within its deadline".into(),
                 };
-                let message = if let Some(path) = path {
+                let message = if let Some(path) = &path {
                     format!("{message} File retained at {}.", path.display())
                 } else {
                     message
                 };
-                if self.active() && self.snapshot()["state"] != "error" {
-                    self.set("on", &message, previous["file"].as_str().map(Path::new));
+                let current = self.snapshot();
+                if self.active() {
+                    self.set(
+                        if current["state"] == "error" {
+                            "error"
+                        } else {
+                            "on"
+                        },
+                        &message,
+                        path.as_deref()
+                            .or_else(|| previous["file"].as_str().map(Path::new)),
+                    );
                 }
                 err(message)
             }

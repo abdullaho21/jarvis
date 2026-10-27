@@ -289,7 +289,12 @@ permission refusal, failed OS writes and partial cleanup. Native Rust tests
 inject `StorageFull` on write and flush. A Linux integration injects a real
 OS file-write error using a process file-size limit; this is not a physically
 full-disk test. Fake GSR integration covers size/write-error stops, private
-`-o` versus clip `-ro`, crash recovery and immutable active storage settings.
+buffers, crash recovery and immutable active storage settings. Live validation
+later exposed two assumptions the initial fake did not model: GSR saves beside
+`-o`, and omitted save duration includes the entire backing buffer. The
+corrected fixture and controller now cover persistent clip publication,
+collision handling, cross-filesystem copying, save/cleanup races and explicit
+default/custom duration requests. See [live replay validation](replay-live-validation.md).
 
 The Windows x64 helper was cross-compiled with Rust 1.99 and the existing
 LLVM-MinGW toolchain, using static runtime linkage. Headless Wine checks cover

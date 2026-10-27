@@ -11,9 +11,17 @@ import time
 
 program = Path(sys.argv[0]).name
 args = sys.argv[1:]
-fd = os.open(os.environ["MURMUR_TEST_LOG"], os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-os.write(fd, (json.dumps({"program": program, "args": args, "pid": os.getpid()}) + "\n").encode())
-os.close(fd)
+
+
+def log_event(**fields):
+    fd = os.open(os.environ["MURMUR_TEST_LOG"], os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    try:
+        os.write(fd, (json.dumps({"program": program, "args": args, "pid": os.getpid(), **fields}) + "\n").encode())
+    finally:
+        os.close(fd)
+
+
+log_event()
 if program in ("hyprctl", "pactl", "pw-dump"):
     time.sleep(float(os.environ.get("MURMUR_TEST_QUERY_DELAY", "0")))
 
@@ -57,15 +65,21 @@ elif program in ("wf-recorder", "gpu-screen-recorder"):
         server = socket.socket(socket.AF_UNIX)
         server.bind(str(path))
         server.listen()
+        log_event(event="ipc_ready")
+        saves = 0
         while True:
             if not select.select([server], [], [], 1)[0]:
                 continue
             connection, _ = server.accept()
             with connection, connection.makefile("rwb") as stream:
                 request = json.loads(stream.readline())
-                destination = "-ro" if "-ro" in args else "-o"
-                output = Path(args[args.index(destination) + 1]) / "Replay_test.mp4"
-                output.write_bytes(b"fake video")
+                log_event(event="ipc_request", request=request)
+                # GSR 6.1.5 saves beside -o; -ro selects the separate regular
+                # recording output in replay mode. Reuse a name deliberately
+                # so the controller must preserve prior published clips.
+                output = Path(args[args.index("-o") + 1]) / "Replay_test.mp4"
+                saves += 1
+                output.write_bytes(f"fake replay {saves}".encode())
                 stream.write((json.dumps({"id": request["id"], "result": "ok", "data": str(output)}) + "\n").encode())
                 stream.flush()
     else:

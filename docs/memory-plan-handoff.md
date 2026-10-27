@@ -15,10 +15,12 @@ plan is not complete, and no Windows or whole-application release gate passes.**
   2026-10-27; inspect `git log` and `git status` for the current state. Preserve
   any remaining changes. Git metadata is read-only in the normal sandbox, so
   Git writes require approved execution. No push, PR, new chat or service
-  restart was performed by this chat.
-- Use the workspace alias as the command working directory and a non-login
+  restart was performed during that original campaign. Later authorized live
+  replay validation deployed tested controller fixes and restarted the service.
+- Use the canonical workspace as the command working directory and a non-login
   shell (`login:false`) so shell startup does not change directories.
-- No `AGENTS.md` was found. No subagents or recurring jobs were created.
+- No `AGENTS.md` was found. A later REA validation subagent added replay-save
+  regression tests. No recurring jobs were created.
 - Use public supplied audio, fake capture and generated video for experiments.
   Do not start a real microphone, desktop capture or installed service merely
   to run a benchmark. Runtime models remain installed as before; experimental
@@ -27,6 +29,21 @@ plan is not complete, and no Windows or whole-application release gate passes.**
   `native.vosk_fast_path` and `native.vosk_finalize_utterances` default false
   and are omitted by normal controllers. Smaller Whisper profiles require
   explicit experimental files. The separate KWS probe is not integrated.
+- Subsequent user authorization on 2026-10-27 enabled the implemented disk
+  replay mode in the live Linux installation: 120 seconds, existing HDR/audio,
+  2048 MiB supervised disk stop threshold. The initial setting change did not
+  restart the controller; saving settings reloaded its voice worker. A 125-second live observation
+  kept replay on, verified private growing disk files and measured recorder
+  RSS about 150 → 115 MiB on this desktop. Total memory also changed with the
+  voice reload and is incomplete, so no combined-budget gate passes. See
+  [local activation and scope](local-memory-activation.md). Recognition settings
+  and experimental defaults remain unchanged. A private full configuration
+  backup is under ignored `build/memory-plan-live/2026-10-27/`. Later authorized
+  save/decode validation found clips were stored inside the disposable buffer,
+  and omitted IPC duration saved all retained backing-file history. Both are
+  fixed with regressions, tested controller deployments and preserved failed
+  evidence. See [live replay validation](replay-live-validation.md) for the
+  final live result and its limits. Clips remain local in the user's Clips folder.
 
 ## Latest continuation and next implementation step
 

@@ -10,6 +10,7 @@ pub mod ipc;
 pub mod memory;
 pub mod policy;
 mod replay_budget;
+mod replay_clip;
 pub mod service;
 pub mod util;
 pub mod voice;
