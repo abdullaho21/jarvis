@@ -80,11 +80,16 @@ leading quiet. It adds timing coverage, not new speakers or a representative
 false-alarm rate. The [first user-selected Jarvis command tail](memory-plan-real-audio.md)
 now adds one real recording. Production small.en and experimental tiny.en both
 recognize it in paced playback, while all three KWS arms miss it even with
-explicit trailing silence. Its wording is an ASR draft, and the older group
-recordings remain unlabeled. This does not complete acoustic acceptance.
+explicit trailing silence. The user has now explicitly confirmed its intended
+wording; the older group recordings remain unlabeled. This does not complete acoustic acceptance.
 The subsequent [PocketSphinx screen](pocketsphinx-wake-screen.md) detects the
 original tail at about 53 MiB, but fails 18/63 expanded case repetitions. It
 also remains unaccepted; no production wake/model setting has changed.
+The [subsequent fixed screens](wake-candidate-screening.md) rule out standalone
+tiny wake recognition, show a dedicated Hey Jarvis model missing the selected
+bare name, and attribute 18 PocketSphinx misses to its VAD/input path. The
+energy-gated candidate still misses two new public positives, as stock Vosk
+also does. No individual replacement has passed the expanded quality gate.
 
 ## What remains, in order
 

@@ -44,7 +44,8 @@ The shorter public wake cut and perturbed inputs retain their intended
 positive labels. These results do not establish a regression relative to a
 matched Vosk run, an end-to-end latency comparison or a general false-alarm
 rate. No command was dispatched. The user selected the real recording; its
-exact command wording remains an ASR draft. No older group recording or
+wording was an ASR draft during this screen and was subsequently
+[confirmed by the user](benchmarks/user-tail-label-2026-10-27.json). No older group recording or
 held-out audio was decoded for this experiment.
 
 The small footprint and successful original Jarvis example justify reporting
@@ -52,3 +53,7 @@ the candidate, but its failed fixed recognition gate prevents promotion.
 Do not port or integrate this configuration or tune it to one recording.
 The next voice work needs representative labeled acoustic evidence and a
 candidate that passes reliability as well as waiting/command memory gates.
+
+A [subsequent fixed VAD/input-path diagnostic](wake-candidate-screening.md)
+recovers these original misses but retains failures on new public positives.
+It is a separate candidate and does not rewrite this failed result.

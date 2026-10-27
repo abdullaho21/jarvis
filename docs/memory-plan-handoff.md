@@ -64,6 +64,25 @@ isolated paced silence CPU 0.0557–0.0663% of one core. Do not port/integrate
 this failed configuration or tune it to the selected recording. No matched
 Vosk comparison or end-to-end latency acceptance is established.
 
+The [subsequent wake screens](wake-candidate-screening.md) are complete.
+Standalone rolling tiny misses all 18 user-tail variants, with eight same-input
+Rust/reference transcripts identical across tiny/small controls. ESPHome's
+pinned v2 Hey Jarvis model passes its three public positives but misses the
+selected bare name at stock cutoff 0.97. A separate PocketSphinx energy gate
+(RMS 0.001, 300 ms pre-roll, 1200 ms hangover, unchanged 1e-20 threshold)
+recovers all 18 original VAD-screen failures; 60/60 common case repetitions
+pass. It still misses two newly acquired public Hey Jarvis examples; stock
+native Vosk also misses those two. All four drivers retain exit 1. No candidate
+is adopted, and neither arbitrary custom-name coverage nor full quality passes.
+
+**Next bounded action:** test a fixed two-detector combination as a new isolated
+hypothesis, using a shared wake/disarm/reset policy and fresh public positives/
+negatives before production integration. Complementarity on already-seen files
+is selection evidence, not independent validation. Measure timing, silence CPU,
+complete memory and command buffering. Keep thresholds fixed. Raw/private
+artifacts and drivers are under ignored `build/memory-plan-corpus/`; pinned
+public assets and diagnostic-only wheels are in `build/memory-plan-mww/`.
+
 ## Latest evidence and next implementation step
 
 The user subsequently supplied a fresh command recording and authorized an
@@ -71,8 +90,9 @@ The user subsequently supplied a fresh command recording and authorized an
 now gives one real Jarvis command example: production small.en and explicit
 tiny.en both recognize the command in paced playback; all three KWS arms miss
 the wake at the unchanged threshold, including a trailing-silence control.
-Keep the exact wording provisional ASR evidence. Older group recordings remain
-unlabeled, and the reserved recordings remain held out. Private recordings,
+The user subsequently confirmed the intended wording “Jarvis, clip that”;
+see [the label record](benchmarks/user-tail-label-2026-10-27.json). Older group
+recordings remain unlabeled, and the reserved recordings remain held out. Private recordings,
 PCM and transcripts stay under ignored `build/memory-plan-corpus/`.
 
 The [native Windows report](memory-plan-windows-validation.md) records 51
@@ -427,10 +447,11 @@ an unresolved question. Preserve expected nonzero acoustic-gate results.
 > Focus on voice waiting/command memory, wake reliability and latency. Preserve
 > production defaults, private recordings and saved failed baselines. All KWS
 > arms miss the selected real Jarvis tail; model-derived alignment also retains
-> a failed recognition gate. The completed PocketSphinx screen also fails
-> expanded recognition; do not repeat it unchanged or port its failed settings.
-> Assess further candidates only at declared fixed settings with representative
-> labels, and do not tune to the selected recording.
+> a failed recognition gate. Read docs/wake-candidate-screening.md for subsequent
+> tiny, dedicated-model and PocketSphinx energy-gate results. The user has now
+> confirmed the selected phrase. Test the fixed combined-detector hypothesis
+> only in isolation, with fresh recognition inputs, reset/timing/CPU/memory and
+> command-handoff evidence. No individual candidate or inferred union is adopted.
 > Continue missing corpus evidence, architecture selection, voice integration,
 > whole-application Linux/pressure and three sequential 24-hour soaks. Deferred
 > Windows and strict-disk-quota gates remain unpassed. Do not start real capture,

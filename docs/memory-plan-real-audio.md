@@ -10,8 +10,10 @@ remain unlabeled. The recordings reserved before inspection remain held out.
 Two local Whisper small.en reference runs, with and without GTCRN, agree on
 “Jarvis, clip that.” The unchanged Rust voice engine recognizes the wake and
 `clip that` in both configurations. The existing parser maps that phrase to
-Save Replay. This is an ASR reference agreement, not an independently confirmed
-human transcript or full recognition acceptance.
+Save Replay. At measurement time the wording was provisional ASR evidence.
+The user later explicitly confirmed the intended phrase as “Jarvis, clip that”; see the
+[human label record](benchmarks/user-tail-label-2026-10-27.json). This confirms
+one positive command, not full recognition acceptance.
 
 Paced playback through the real worker and a fake capture child gives:
 
@@ -49,3 +51,6 @@ process includes Python and its meter, and uses smaller grammars than the
 application. It establishes no shipping footprint or recognition result, but
 does not support pursuing decoder deferral alone as a way to save the tens of
 MiB missing from the waiting budget. No production decoder policy changed.
+
+[Subsequent wake screening](wake-candidate-screening.md) distinguishes tiny
+command recognition from wake recognition and records further fixed candidates.

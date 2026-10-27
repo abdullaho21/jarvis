@@ -42,7 +42,10 @@ already tested and remains unaccepted; see [the alignment report](kws-alignment.
 The selected real Jarvis command is also missed by all KWS arms. The subsequent
 [fixed PocketSphinx screen](pocketsphinx-wake-screen.md) detects the original
 Jarvis tail but fails expanded quiet/interrupted recognition controls. Neither
-wake candidate is accepted for integration. Small.en's command-memory
+wake candidate is accepted for integration. [Subsequent screening](wake-candidate-screening.md)
+recovers the original PocketSphinx VAD failures, but new public positives still
+fail. Standalone tiny wake recognition and the stock dedicated Hey Jarvis
+model also fail; a combined detector remains an unmeasured hypothesis. Small.en's command-memory
 failure and base.en's reference discrepancy remain open; tiny.en needs broader
 acoustic evidence. No production model or allocator change is adopted.
 
