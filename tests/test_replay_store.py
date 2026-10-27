@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import io
 import os
 from pathlib import Path
 import shutil
@@ -10,10 +11,66 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from murmur.recorder import RecorderError
 from murmur.replay_store import DiskReplayBuffer, binary
+
+
+class StoreDeadlineTests(unittest.TestCase):
+    def test_unresponsive_helper_cannot_block_append_or_cleanup(self):
+        # Exercise stalled response AND a full input pipe without leaving a
+        # hung process behind when running against the pre-fix implementation.
+        for stall_write in (False, True):
+            with self.subTest(stall_write=stall_write), tempfile.TemporaryDirectory() as folder:
+                release = threading.Event()
+                reads = []
+
+                class Output:
+                    def readline(self, limit):
+                        if not reads:
+                            reads.append(True)
+                            return b'{"ok":true}\n'
+                        release.wait(5)
+                        return b''
+
+                    def close(self):
+                        pass
+
+                class Input(io.BytesIO):
+                    def write(self, value):
+                        if stall_write and reads:
+                            release.wait(5)
+                            raise BrokenPipeError('helper stopped')
+                        return super().write(value)
+
+                process = MagicMock(stdin=Input(), stdout=Output())
+                process.kill.side_effect = release.set
+                errors = []
+                with patch('murmur.replay_store.binary', return_value='fake-store'), \
+                        patch('murmur.replay_store.subprocess.Popen', return_value=process), \
+                        patch.object(DiskReplayBuffer, 'REQUEST_TIMEOUT', .05, create=True):
+                    buffer = DiskReplayBuffer(2, 1024, str(Path(folder) / 'buffer'))
+
+                    def append():
+                        try:
+                            buffer.append(b'video', 0)
+                        except RecorderError as error:
+                            errors.append(str(error))
+
+                    worker = threading.Thread(target=append)
+                    worker.start()
+                    try:
+                        worker.join(timeout=1)
+                        self.assertFalse(worker.is_alive(), 'A stalled helper blocked the capture thread')
+                        self.assertTrue(errors)
+                        self.assertIn('deadline', errors[0])
+                        process.kill.assert_called()
+                    finally:
+                        release.set()
+                        worker.join(timeout=2)
+                        buffer.close()
+                    self.assertFalse(buffer._watchdog.is_alive())
 
 
 def available():
@@ -192,6 +249,26 @@ class DiskStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(RecorderError, "current second"):
             with buffer.files(after=time.monotonic(), timeout=.01):
                 self.fail("No new segment")
+
+    @unittest.skipIf(os.name == "nt", "POSIX stopped-process fault injection")
+    def test_stopped_real_helper_is_killed_and_next_start_cleans_its_session(self):
+        import signal
+        buffer = self.store()
+        buffer.append(b'old', 0)
+        session = next((self.root / 'buffer').glob('session-*'))
+        os.kill(buffer.process.pid, signal.SIGSTOP)
+        try:
+            with patch.object(DiskReplayBuffer, 'REQUEST_TIMEOUT', .1):
+                with self.assertRaisesRegex(RecorderError, 'deadline'):
+                    buffer.append(b'new', 1)
+        finally:
+            buffer.close()
+        self.assertIsNotNone(buffer.process.poll())
+        self.assertFalse(buffer._watchdog.is_alive())
+        self.assertTrue(session.exists(), 'SIGKILL leaves a marked crash session')
+        replacement = self.store()
+        self.assertFalse(session.exists())
+        replacement.append(b'recovered', 0)
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg")
     def test_real_video_save_during_rollover_and_full_decode(self):

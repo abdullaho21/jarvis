@@ -10,14 +10,14 @@ import threading
 import time
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from murmur import config, host
 from murmur.recorder import RecorderError
 from murmur.windows import encoding, transport
 from murmur.windows.audio import PCMStream, VoiceIO, select_device
 from murmur.windows.apps import WindowsApp
-from murmur.windows.capture import ReplayBuffer
+from murmur.windows.capture import Replay, ReplayBuffer
 
 try:
     import tkinter  # noqa: F401  (the Windows settings window needs Tk)
@@ -190,6 +190,31 @@ class BufferTests(unittest.TestCase):
         thread.join()
         with self.assertRaises(RecorderError):
             buffer.snapshot(after=time.monotonic() + 1, timeout=0.01)
+
+
+class ReplaySaveTests(unittest.TestCase):
+    def test_failed_verification_reports_the_retained_partial_clip(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            segment = root / 'segment-0000.mkv'
+            segment.write_bytes(b'generated segment')
+            capture = Replay(config.validate({}))
+            capture._buffer, capture._folder, capture._process = MagicMock(), root, MagicMock()
+            capture._buffer.files.return_value.__enter__.return_value = (segment,)
+
+            def remux(argv, **kwargs):
+                Path(argv[-1]).write_bytes(b'completed clip retained for inspection')
+                return types.SimpleNamespace(returncode=0)
+
+            with patch('murmur.windows.capture.tool', return_value='fake-ffmpeg'), \
+                    patch('murmur.windows.capture.subprocess.run', side_effect=remux), \
+                    patch('murmur.windows.capture.verify_video', side_effect=RecorderError('invalid HDR metadata')):
+                with self.assertRaisesRegex(RecorderError, 'invalid HDR metadata'):
+                    capture.save()
+            status = capture.status()
+            self.assertIsNotNone(status['file'])
+            self.assertEqual(Path(status['file']).read_bytes(), b'completed clip retained for inspection')
+            self.assertIn('retained', status['message'])
 
 
 class TransportTests(unittest.TestCase):

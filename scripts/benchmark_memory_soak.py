@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from benchmark_load_cycles import session
 
+MAX_FLOOR_GAP_SECONDS = 300
+
 
 def slope(points):
     center = sum(t for t, _ in points) / len(points)
@@ -31,25 +33,39 @@ def slope(points):
 
 
 def analyze(run, warmup_seconds=3600, windows=3, tolerance=1, minimum_seconds=86400):
+    finite = lambda value: type(value) in (int, float) and math.isfinite(value)
+    if (type(windows) is not int or not 2 <= windows <= 10
+            or not all(finite(v) for v in (warmup_seconds, tolerance, minimum_seconds))
+            or not 0 <= warmup_seconds < minimum_seconds or tolerance < 0):
+        return {"status": "invalid", "reason": "Invalid analysis limits"}
     rows = run.get("commands", [])
     if (not run.get("commands_identical") or not rows
             or any(row.get("text") != "ten meters" for row in rows)):
         return {"status": "invalid", "reason": "Missing or mismatched fixture commands"}
     elapsed = run.get("elapsed_seconds", 0)
-    if not math.isfinite(elapsed):
-        return {"status": "invalid", "reason": "Non-finite run duration"}
+    if not finite(elapsed) or elapsed < 0:
+        return {"status": "invalid", "reason": "Invalid run duration"}
     if elapsed < minimum_seconds:
         return {"status": "insufficient", "reason": "Run shorter than the requested duration"}
-    if any(not math.isfinite(row.get("wake_elapsed_seconds", float("nan")))
-           or not math.isfinite(row.get("rss_at_wake_mib", float("nan"))) for row in rows):
-        return {"status": "invalid", "reason": "Missing or non-finite memory or timestamps"}
+    if any(not finite(row.get("wake_elapsed_seconds"))
+           or not finite(row.get("rss_at_wake_mib"))
+           or not 0 <= row["wake_elapsed_seconds"] <= elapsed
+           or row["rss_at_wake_mib"] < 0 for row in rows):
+        return {"status": "invalid", "reason": "Missing, invalid or non-finite memory or timestamps"}
+    if any(b["wake_elapsed_seconds"] <= a["wake_elapsed_seconds"] for a, b in zip(rows, rows[1:])):
+        return {"status": "invalid", "reason": "Wake timestamps must strictly increase"}
     points = [(row["wake_elapsed_seconds"], row["rss_at_wake_mib"]) for row in rows
               if row.get("wake_elapsed_seconds", -1) >= warmup_seconds]
     if len(points) < windows * 3 or points[-1][0] <= warmup_seconds:
         return {"status": "insufficient", "reason": "Need at least three post-warm-up wake floors per window"}
-    if any(b[0] <= a[0] for a, b in zip(points, points[1:])):
-        return {"status": "invalid", "reason": "Wake timestamps must strictly increase"}
-    width = (points[-1][0] - warmup_seconds) / windows
+    # Fit the declared run, not only the period with available observations.
+    # Require floors throughout it; a short cluster cannot stand in for a day.
+    times = [warmup_seconds, *(t for t, _ in points), elapsed]
+    maximum_gap = max(b - a for a, b in zip(times, times[1:]))
+    if maximum_gap > MAX_FLOOR_GAP_SECONDS:
+        return {"status": "insufficient", "reason": "More than five minutes without a post-warm-up floor",
+                "largest_floor_gap_seconds": maximum_gap}
+    width = (elapsed - warmup_seconds) / windows
     fits = []
     for index in range(windows):
         lower, upper = warmup_seconds + index * width, warmup_seconds + (index + 1) * width
@@ -61,7 +77,8 @@ def analyze(run, warmup_seconds=3600, windows=3, tolerance=1, minimum_seconds=86
     exceeds = [fit["slope_mib_per_hour"] > tolerance for fit in fits]
     status = "growth" if all(exceeds) else "stable" if not any(exceeds) else "inconclusive"
     return {"status": status, "warmup_seconds": warmup_seconds,
-            "tolerance_mib_per_hour": tolerance, "windows": fits}
+            "tolerance_mib_per_hour": tolerance, "maximum_floor_gap_seconds": MAX_FLOOR_GAP_SECONDS,
+            "largest_floor_gap_seconds": maximum_gap, "windows": fits}
 
 
 def verdict(analyses):
@@ -102,7 +119,7 @@ def main():
               "platform": platform.platform(), "fixture_sha256": hashlib.sha256(pcm).hexdigest(),
               "requested_hours_per_run": args.hours, "required_runs": args.runs,
               "scope": "voice-worker RSS floors only; excludes controller, UI and capture; not a recognition acceptance test",
-              "runs": [], "verdict": "incomplete"}
+              "runs": [], "verdict": "incomplete", "full_duration_worker_soak_pass": False}
     for index in range(args.runs):
         try:
             run = session(args.binary, args.fixture, args.idle, cycles, args.speech, args.room_noise)
@@ -112,6 +129,7 @@ def main():
             result["runs"].append({"index": index, "analysis": {"status": "invalid", "reason": str(exc)}})
         result["verdict"] = (verdict([run["analysis"] for run in result["runs"]])
                              if len(result["runs"]) == args.runs else "incomplete")
+        result["full_duration_worker_soak_pass"] = args.hours >= 24 and result["verdict"] == "pass"
         args.output.write_text(json.dumps(result, indent=2) + "\n")
         print(json.dumps({"run": index, "analysis": result["runs"][-1]["analysis"], "verdict": result["verdict"]}), flush=True)
         if result["runs"][-1]["analysis"]["status"] == "invalid":

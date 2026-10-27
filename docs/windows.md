@@ -87,6 +87,10 @@ It evicts old unpinned history before writing; when a save/pending data occupies
 the budget or a disk write fails, capture stops with an error. Snapshots keep
 their files through rollover and a concurrent Stop. In-flight named-pipe segments,
 encoder buffers and the output clip remain outside this encoded-file cap.
+Helper requests have a ten-second deadline covering writes and replies. A stalled
+helper is terminated so capture and cleanup can finish; marked crash buffers
+are removed on the next replay start. A failed save reports any retained partial
+clip's path, including when final HDR/codec verification fails.
 
 `replay.buffer_dir` optionally selects a dedicated directory; the default is
 `%LOCALAPPDATA%\Jarvis\replay-buffer`. The adapter applies a protected user-only,

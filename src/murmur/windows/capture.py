@@ -403,7 +403,7 @@ class Replay(_Capture):
     def save(self):
         if not self._saving.acquire(blocking=False):
             raise RecorderError("A replay is already being saved")
-        folder = None
+        partial = None
         try:
             with self._lock:
                 if self._process is None or self._buffer is None:
@@ -478,10 +478,12 @@ class Replay(_Capture):
                 )
             return self.status()
         except (OSError, subprocess.TimeoutExpired, RuntimeError) as exc:
+            retained = partial if partial and partial.is_file() else self._status.get("file")
+            detail = f" Partial video retained at {retained}." if retained == partial and partial else ""
             self._set(
-                "on" if self._process is not None else "error",
-                str(exc),
-                self._status.get("file"),
+                "on" if self._process is not None and not self._error else "error",
+                str(exc) + detail,
+                retained,
             )
             raise RecorderError(str(exc)) from exc
         finally:

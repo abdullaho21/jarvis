@@ -49,6 +49,30 @@ class SoakGateTests(unittest.TestCase):
         sample["elapsed_seconds"] = math.nan
         self.assertEqual(analyze(sample)["status"], "invalid")
 
+    def test_floors_must_cover_the_run_instead_of_only_a_short_cluster(self):
+        sample = run()
+        sample["commands"] = sample["commands"][12:24]
+        self.assertEqual(analyze(sample)["status"], "insufficient")
+        sample = run()
+        sample["commands"] = [row for row in sample["commands"]
+                              if not 8 * 3600 < row["wake_elapsed_seconds"] < 16 * 3600]
+        self.assertEqual(analyze(sample)["status"], "insufficient")
+
+    def test_invalid_memory_and_timestamps_outside_the_run_are_rejected(self):
+        for key, value in (("rss_at_wake_mib", -1),
+                           ("wake_elapsed_seconds", -1),
+                           ("wake_elapsed_seconds", 90000)):
+            with self.subTest(key=key, value=value):
+                sample = run()
+                sample["commands"][-1][key] = value
+                self.assertEqual(analyze(sample)["status"], "invalid")
+
+    def test_invalid_analysis_parameters_never_pass(self):
+        for options in ({"windows": 0}, {"windows": True}, {"tolerance": math.nan},
+                        {"warmup_seconds": -1}, {"minimum_seconds": 0}):
+            with self.subTest(options=options):
+                self.assertEqual(analyze(run(), **options)["status"], "invalid")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -11,7 +11,8 @@ Start with the root [README](../README.md) for installation and everyday use.
 | [Memory-plan progress](memory-plan-progress.md) | How far the six steps have progressed, acceptance gaps, remaining order and timing limits |
 | [Local memory activation](local-memory-activation.md) | User-enabled Linux disk replay, live verification, privacy/storage behavior and remaining memory work |
 | [Live replay validation](replay-live-validation.md) | Persistent saved clips, configured history duration, local decode and Stop/restart checks |
-| [Memory-plan handoff](memory-plan-handoff.md) | Current uncommitted work, measured results, local assets and the next Rust KWS experiment |
+| [Memory-plan code review](memory-plan-code-review.md) | Full-plan review scope, fixed lifecycle/measurement/recovery bugs and regression results |
+| [Memory-plan handoff](memory-plan-handoff.md) | Current state, measured results, local assets and the next Rust KWS experiment |
 | [Review handoff](review-ready.md) | Where to review and what remains unverified |
 | [Windows release](windows.md) | Windows installer/ZIP, build instructions and hardware acceptance |
 | [Feature review](feature-review.md) | Recording settings and deferred Discord work |

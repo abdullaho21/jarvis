@@ -22,6 +22,8 @@ def binary():
 
 
 class DiskReplayBuffer:
+    REQUEST_TIMEOUT = 10
+
     def __init__(self, seconds, max_bytes, directory=""):
         root = Path(directory).expanduser() if directory else data_dir() / "replay-buffer"
         root = root.absolute()
@@ -41,15 +43,53 @@ class DiskReplayBuffer:
             [binary()], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, **child_options(),
         )
+        # A separate condition lets this watchdog stop a helper while the
+        # capture thread holds changed inside a blocked pipe write/read.
+        self._deadline = threading.Condition()
+        self._deadline_at = None
+        self._expired = False
+        self._watchdog_closed = False
+        self._watchdog = threading.Thread(target=self._watch_deadline,
+                                          name="jarvis-replay-store-deadline", daemon=True)
+        self._watchdog.start()
         try:
             self._request("open", root=str(root), seconds=seconds, bytes=max_bytes)
         except Exception:
             self.close()
             raise
 
+    def _watch_deadline(self):
+        with self._deadline:
+            while not self._watchdog_closed:
+                if self._deadline_at is None:
+                    self._deadline.wait()
+                    continue
+                remaining = self._deadline_at - time.monotonic()
+                if remaining > 0:
+                    self._deadline.wait(remaining)
+                    continue
+                self._expired = True
+                break
+            else:
+                return
+        # Killing the owned helper unblocks both full input pipes and stalled
+        # replies. Its marked crash session is removed on the next start.
+        try:
+            self.process.kill()
+        except OSError:
+            pass
+
+    def _deadline_error(self):
+        return RecorderError(f"Replay disk storage exceeded its {self.REQUEST_TIMEOUT:g}-second request deadline; replay stopped")
+
     def _request(self, op, data=None, **fields):
         # All calls are serialized by changed. The helper reads at most 64 KiB
         # at once, even when a pipe reader has delivered a large segment.
+        with self._deadline:
+            if self._expired:
+                raise self._deadline_error()
+            self._deadline_at = time.monotonic() + self.REQUEST_TIMEOUT
+            self._deadline.notify_all()
         try:
             self.process.stdin.write(json.dumps(dict(op=op, **fields)).encode() + b"\n")
             if data is not None:
@@ -61,6 +101,13 @@ class DiskReplayBuffer:
             return reply
         except (OSError, ValueError) as exc:
             raise RecorderError(f"Replay disk storage failed: {exc}") from exc
+        finally:
+            with self._deadline:
+                expired = self._expired
+                self._deadline_at = None
+                self._deadline.notify_all()
+            if expired:
+                raise self._deadline_error()
 
     def append(self, data, sequence):
         with self.changed:
@@ -101,8 +148,15 @@ class DiskReplayBuffer:
                         self._finish()
 
     def _finish(self):
+        with self._deadline:
+            self._watchdog_closed = True
+            self._deadline.notify_all()
+        self._watchdog.join()
         if self.process.stdin and not self.process.stdin.closed:
-            self.process.stdin.close()  # EOF drops the session and releases its lock.
+            try:
+                self.process.stdin.close()  # EOF drops the session and releases its lock.
+            except OSError:
+                pass  # a failed helper can close its end before buffered flush
         try:
             self.process.wait(timeout=3)
         except subprocess.TimeoutExpired:

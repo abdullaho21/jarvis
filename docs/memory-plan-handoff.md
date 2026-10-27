@@ -47,6 +47,11 @@ plan is not complete, and no Windows or whole-application release gate passes.**
 
 ## Latest continuation and next implementation step
 
+The [full-plan code review](memory-plan-code-review.md) follows the committed
+live replay fixes. It tightens soak sample coverage, bounds disk-helper I/O,
+reports retained Windows save failures and corrects related tests. Full Python
+and six-crate Rust validation passed; this does not clear the release gates.
+
 Read [the model-alignment experiment](kws-alignment.md), then the earlier
 [reader/cache](kws-reader-caches.md), [pressure](kws-pressure-allocations.md) and
 [continuous timing](kws-continuous-diagnostics.md) reports. Do not repeat old

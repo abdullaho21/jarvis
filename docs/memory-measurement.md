@@ -360,13 +360,20 @@ with their memory and latency measured together. No production default changed.
 
 This is **three sequential 24-hour runs**, not a completed result. Each run
 records wake timestamps and RSS floors, discards the first hour, and fits a
-least-squares slope in three equal time windows. Every window needs at least
-three floors. A run is stable only when every slope is at most 1 MiB/hour;
+least-squares slope in three equal windows spanning the declared run duration.
+Every window needs at least three floors, and the post-warm-up observations
+must cover that duration with no gaps longer than five minutes, including its
+start and end. Negative, non-finite, unordered or out-of-run observations are
+invalid. A short sample cluster cannot stand in for an entire day.
+A run is stable only when every slope is at most 1 MiB/hour;
 persistent growth means every slope exceeds that tolerance. Mixed windows or
 repeated-run outcomes are inconclusive and exit non-zero. Only three or more
 stable completed runs pass. Short runs, missing/non-finite observations and
 incorrect command text cannot pass. Each completed run is saved before the
 next starts; an interrupted campaign is not a pass.
+Short diagnostic campaigns keep `full_duration_worker_soak_pass` false even if
+their requested shorter-duration slope checks pass. This field requires at
+least three passing runs of at least 24 hours each.
 
 This runner retains the load-cycle benchmark's historical room-noise workload
 by default for comparison. Its scope is memory, not wake correctness. Use the
