@@ -207,6 +207,48 @@ def whisper_worker(idle, pcm):
 
 @unittest.skipUnless(binary_path() and MODEL and FIXTURE, "build Rust and supply the public fixture and Vosk model")
 class RustEngineTests(unittest.TestCase):
+    def test_continuous_wake_probe_counts_repeated_wakes_without_command_handoff(self):
+        config = copy.deepcopy(DEFAULTS)
+        config["recognition"].update(model_path=MODEL, accurate=False)
+        config["activation"]["wake_phrase"] = "go forward"
+        _, payload, env = native(config, grammar=Parser({"ten meters": "start recording"}).grammar(APPS))
+        env["PATH"] = "/no/capture/program"
+        binary = Path(__file__).resolve().parents[1] / "native/voice-worker/target/release/jarvis-voice"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "repeated.raw"
+            audio = Path(FIXTURE).read_bytes() + bytes(64000)
+            path.write_bytes(audio)
+            requests = [{"path": str(path), "session": "wake", "repeat": 3},
+                        {"path": str(path), "session": "wake", "repeat": 3, "wake_only": True}]
+            for finalize in (False, True):
+                with self.subTest(finalize=finalize):
+                    payload["native"]["vosk_finalize_utterances"] = finalize
+                    output = subprocess.run([str(binary), "--engine"],
+                                            input=json.dumps(payload) + "\n" + "".join(json.dumps(r) + "\n" for r in requests),
+                                            text=True, capture_output=True, check=True, env=env, timeout=20)
+                    rows = [json.loads(line) for line in output.stdout.splitlines()]
+                    self.assertEqual([r["event"] for r in rows], ["ready", "result", "result"])
+                    self.assertEqual(sum(e["kind"] == "wake" for e in rows[1]["events"]), 1)
+                    events = rows[2]["events"]
+                    self.assertEqual([e["kind"] for e in events], ["wake"] * 3)
+                    ticks = [e["input_seconds"] for e in events]
+                    self.assertEqual(ticks, sorted(set(ticks)))
+                    self.assertGreater(ticks[0], 0)
+                    self.assertLessEqual(ticks[-1], len(audio) * 3 / 32000 + 2.03)
+                    self.assertTrue(rows[2]["wake_only"])
+
+    def test_wake_only_probe_rejects_a_command_session(self):
+        config = copy.deepcopy(DEFAULTS)
+        config["recognition"].update(model_path=MODEL, accurate=False)
+        _, payload, env = native(config)
+        binary = Path(__file__).resolve().parents[1] / "native/voice-worker/target/release/jarvis-voice"
+        request = {"path": FIXTURE, "session": "command", "wake_only": True}
+        output = subprocess.run([str(binary), "--engine"],
+                                input=json.dumps(payload) + "\n" + json.dumps(request) + "\n",
+                                text=True, capture_output=True, env=env, timeout=20)
+        self.assertNotEqual(output.returncode, 0)
+        self.assertIn("requires session wake", json.loads(output.stdout.splitlines()[-1])["message"])
+
     def test_finalized_decoders_recover_wakes_and_commands_across_repeated_background(self):
         from scripts.benchmark_vosk_finalization import engine_probe
         binary = Path(__file__).resolve().parents[1] / "native/voice-worker/target/release/jarvis-voice"

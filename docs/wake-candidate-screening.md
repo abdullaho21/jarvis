@@ -98,3 +98,6 @@ Do not count a union of these already-seen outcomes as independent validation.
 Keep the original model thresholds fixed and retain all failures. Arbitrary
 custom names, missing corpus categories, whole-application budgets and final
 soaks remain open.
+
+The [subsequent fixed combination](dual-wake-screen.md) is now measured and
+rejected on fresh public inputs, despite passing all familiar controls.

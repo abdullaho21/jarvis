@@ -94,6 +94,17 @@ fn cpu_seconds() -> f64 {
     }
     time.tv_sec as f64 + time.tv_nsec as f64 / 1e9
 }
+fn wake_only(request: &Value) -> Result<bool> {
+    let enabled = request
+        .get("wake_only")
+        .map(|value| value.as_bool().ok_or("wake_only must be a boolean"))
+        .transpose()?
+        .unwrap_or(false);
+    if enabled && request["session"].as_str() != Some("wake") {
+        return Err("wake_only requires session wake".into());
+    }
+    Ok(enabled)
+}
 fn benchmark(payload: Payload, reader: &mut impl BufRead, engine_mode: bool) -> Result<()> {
     let start = std::time::Instant::now();
     let transcriber = if engine_mode {
@@ -115,6 +126,10 @@ fn benchmark(payload: Payload, reader: &mut impl BufRead, engine_mode: bool) -> 
     )?;
     while let Some(line) = read_line(reader, 16384)? {
         let request: Value = serde_json::from_slice(&line)?;
+        let wake_only = wake_only(&request)?;
+        if wake_only && !engine_mode {
+            return Err("wake_only requires --engine".into());
+        }
         let pcm = read_pcm(request["path"].as_str().ok_or("Fixture path required")?)?;
         let start = std::time::Instant::now();
         let cpu = cpu_seconds();
@@ -135,10 +150,22 @@ fn benchmark(payload: Payload, reader: &mut impl BufRead, engine_mode: bool) -> 
             engine.begin(request["session"].as_str().unwrap_or("command") == "command")?;
             let mut padded = pcm.repeat(repeats as usize);
             padded.resize((padded.len() + 64000).div_ceil(960) * 960, 0);
-            for frame in padded.as_chunks::<960>().0 {
+            for (index, frame) in padded.as_chunks::<960>().0.iter().enumerate() {
                 if let Some(result) = engine.feed(frame, worker::rms(frame) < 0.005)? {
                     let wake = result.kind == "wake";
-                    events.push(serde_json::to_value(&result)?);
+                    let mut event = serde_json::to_value(&result)?;
+                    if wake_only {
+                        // Diagnostic input time, including explicit padding;
+                        // this is not wall time or command delivery latency.
+                        event["input_seconds"] = json!((index + 1) as f64 * 0.03);
+                    }
+                    events.push(event);
+                    if wake_only {
+                        // Skip command handoff and re-arm on the next frame.
+                        // begin() discards pending results from this utterance.
+                        engine.begin(false)?;
+                        continue;
+                    }
                     if wake {
                         if let Some(command) = engine.after_wake() {
                             events.push(serde_json::to_value(command)?);
@@ -162,7 +189,7 @@ fn benchmark(payload: Payload, reader: &mut impl BufRead, engine_mode: bool) -> 
         }
         let settle_cpu = cpu_seconds() - cpu;
         emit(
-            json!({"event":"result","text":text,"events":events,"seconds":seconds,"decode_cpu_seconds":decode_cpu,"settle_cpu_seconds":settle_cpu,"memory":metrics(),"recognition_stats":engine.as_ref().map(engine::Engine::recognition_stats)}),
+            json!({"event":"result","text":text,"events":events,"wake_only":wake_only,"seconds":seconds,"decode_cpu_seconds":decode_cpu,"settle_cpu_seconds":settle_cpu,"memory":metrics(),"recognition_stats":engine.as_ref().map(engine::Engine::recognition_stats)}),
         )?;
     }
     Ok(())
@@ -265,5 +292,26 @@ fn main() {
     if let Err(error) = run() {
         let _ = emit(json!({"event":"error","message":error.to_string()}));
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod replay_tests {
+    use super::*;
+
+    #[test]
+    fn wake_only_requires_an_explicit_wake_session_and_boolean() {
+        assert!(!wake_only(&json!({})).unwrap());
+        assert!(!wake_only(&json!({"session":"command","wake_only":false})).unwrap());
+        assert!(wake_only(&json!({"session":"wake","wake_only":true})).unwrap());
+        for request in [
+            json!({"wake_only":true}),
+            json!({"session":"command","wake_only":true}),
+            json!({"session":"wake","wake_only":1}),
+            json!({"session":"wake","wake_only":"true"}),
+            json!({"session":"wake","wake_only":null}),
+        ] {
+            assert!(wake_only(&request).is_err(), "{request}");
+        }
     }
 }

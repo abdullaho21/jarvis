@@ -75,13 +75,24 @@ pass. It still misses two newly acquired public Hey Jarvis examples; stock
 native Vosk also misses those two. All four drivers retain exit 1. No candidate
 is adopted, and neither arbitrary custom-name coverage nor full quality passes.
 
-**Next bounded action:** test a fixed two-detector combination as a new isolated
-hypothesis, using a shared wake/disarm/reset policy and fresh public positives/
-negatives before production integration. Complementarity on already-seen files
-is selection evidence, not independent validation. Measure timing, silence CPU,
-complete memory and command buffering. Keep thresholds fixed. Raw/private
+The [fixed combined detector](dual-wake-screen.md) is now rejected. Before
+inference, 32 fresh Jarvis recordings and 20 other-keyword negatives were
+selected from the pinned public Picovoice benchmark by Git blob hash order.
+The combination detects 24/32 positives, native Vosk 31/32; there are eight
+paired regressions and one gain, with no extra wakes on the 20 negatives.
+All 54 familiar controls pass, including repeated shared-reset sequences.
+Peak combined worker RSS is 71.86 MiB, excluding the application. The driver
+completes with exit 1. Do not port/integrate or tune this failed candidate to
+these newly observed files. The other 352 public Jarvis recordings remain
+undownloaded/undecoded; the user's reserved private recordings remain untouched.
+
+**Pending user clarification:** keep the 150 MiB waiting target and continue
+wake-engine research, or revise it to 200 MiB while retaining Vosk and focusing
+on command memory. Do not treat the recommended/default UI option as an answer;
+keep numerical targets unchanged until the user replies. Independent command
+quality, retained-memory and instrumentation work can continue. Raw/private
 artifacts and drivers are under ignored `build/memory-plan-corpus/`; pinned
-public assets and diagnostic-only wheels are in `build/memory-plan-mww/`.
+model assets and diagnostic wheels are in `build/memory-plan-mww/`.
 
 ## Latest evidence and next implementation step
 
@@ -449,9 +460,11 @@ an unresolved question. Preserve expected nonzero acoustic-gate results.
 > arms miss the selected real Jarvis tail; model-derived alignment also retains
 > a failed recognition gate. Read docs/wake-candidate-screening.md for subsequent
 > tiny, dedicated-model and PocketSphinx energy-gate results. The user has now
-> confirmed the selected phrase. Test the fixed combined-detector hypothesis
-> only in isolation, with fresh recognition inputs, reset/timing/CPU/memory and
-> command-handoff evidence. No individual candidate or inferred union is adopted.
+> confirmed the selected phrase. Read docs/dual-wake-screen.md: the fixed
+> combined candidate passes known controls but has eight paired regressions on
+> fresh public recordings. Do not port or tune it to those failures. Resolve
+> the pending waiting-budget question from a real user reply before changing
+> any target; keep working on independent command/retention evidence meanwhile.
 > Continue missing corpus evidence, architecture selection, voice integration,
 > whole-application Linux/pressure and three sequential 24-hour soaks. Deferred
 > Windows and strict-disk-quota gates remain unpassed. Do not start real capture,

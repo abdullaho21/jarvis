@@ -45,7 +45,10 @@ Jarvis tail but fails expanded quiet/interrupted recognition controls. Neither
 wake candidate is accepted for integration. [Subsequent screening](wake-candidate-screening.md)
 recovers the original PocketSphinx VAD failures, but new public positives still
 fail. Standalone tiny wake recognition and the stock dedicated Hey Jarvis
-model also fail; a combined detector remains an unmeasured hypothesis. Small.en's command-memory
+model also fail. The [fixed combined detector](dual-wake-screen.md) is now
+rejected: 24/32 fresh Jarvis positives versus Vosk 31/32, with eight paired
+regressions. All 54 familiar controls passed. No target changes without an
+explicit user answer to the pending 150-versus-200 MiB waiting-budget question. Small.en's command-memory
 failure and base.en's reference discrepancy remain open; tiny.en needs broader
 acoustic evidence. No production model or allocator change is adopted.
 

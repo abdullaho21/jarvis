@@ -90,6 +90,11 @@ tiny wake recognition, show a dedicated Hey Jarvis model missing the selected
 bare name, and attribute 18 PocketSphinx misses to its VAD/input path. The
 energy-gated candidate still misses two new public positives, as stock Vosk
 also does. No individual replacement has passed the expanded quality gate.
+The [subsequent fixed combination](dual-wake-screen.md) passes all 54 familiar
+controls but detects 24/32 new positives against Vosk 31/32. Its eight paired
+regressions reject it. The user has been asked whether to retain the 150 MiB
+waiting target or revise it to 200 MiB while keeping Vosk; no answer or target
+change is assumed.
 
 ## What remains, in order
 
