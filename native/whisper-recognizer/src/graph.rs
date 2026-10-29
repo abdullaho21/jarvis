@@ -380,7 +380,11 @@ pub fn check_export(graph: &pb::GraphProto, expected: u64) -> TractResult<()> {
 /// expanded temporary immediately. This removes repeated conversions and the
 /// otherwise-retained duplicate un-packed MLP weights without changing math.
 pub fn fold_weight_sums(mut model: TypedModel) -> TractResult<TypedModel> {
-    use tract_onnx::tract_core::ops::{cast::Cast, konst::Const, nn::Reduce};
+    use tract_onnx::tract_core::ops::{
+        cast::Cast,
+        konst::Const,
+        nn::{Reduce, Reducer},
+    };
     let mut replacements = Vec::new();
     for node in model.nodes() {
         let Some(reduce) = node.op_as::<Reduce>() else {
@@ -410,8 +414,33 @@ pub fn fold_weight_sums(mut model: TypedModel) -> TractResult<TypedModel> {
         {
             continue;
         }
-        let expanded = weight.cast_to_dt(DatumType::I32)?;
-        let sum = reduce.reducer.reduce(&reduce.axes, &expanded)?;
+        let sum = if reduce.reducer == Reducer::Sum
+            && reduce.axes.as_slice() == [0]
+            && weight.rank() == 2
+            && weight.shape()[0] <= i32::MAX as usize / 128
+            && weight.shape()[1] != 0
+        {
+            // Compute quantization compensation directly from int8 rows.
+            // Expanding a 3072x768 matrix first needlessly allocates 9 MiB
+            // just to produce a 3 KiB column-sum tensor.
+            let columns = weight.shape()[1];
+            let mut sum = Tensor::zero::<i32>(&[1, columns])?;
+            let mut plain = sum.try_as_plain_ram_mut()?;
+            let sums = plain.as_slice_mut::<i32>()?;
+            for row in weight
+                .try_as_plain_ram()?
+                .as_slice::<i8>()?
+                .chunks_exact(columns)
+            {
+                for (sum, value) in sums.iter_mut().zip(row) {
+                    *sum += i32::from(*value);
+                }
+            }
+            sum
+        } else {
+            let expanded = weight.cast_to_dt(DatumType::I32)?;
+            reduce.reducer.reduce(&reduce.axes, &expanded)?
+        };
         replacements.push((node.id, sum));
     }
     for (id, value) in replacements {

@@ -7,15 +7,12 @@ mod model;
 mod profile;
 mod quantize;
 mod scale;
-use base64::{engine::general_purpose::STANDARD, Engine};
+mod tokens;
 use embedding::Embedding;
 use features::Features;
 use profile::Profile;
-use std::{
-    collections::{BTreeMap, HashMap},
-    path::Path,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, path::Path, sync::Arc};
+use tokens::TokenTable;
 use tract_linalg::multithread::Executor;
 use tract_onnx::prelude::*;
 use tract_onnx::tract_core::{
@@ -30,7 +27,7 @@ pub struct Recognizer {
     norm: Arc<TypedRunnableModel>,
     embedding: Embedding,
     positions: Tensor,
-    tokens: HashMap<usize, Vec<u8>>,
+    tokens: TokenTable,
     pool: Arc<rayon::ThreadPool>,
     features: Features,
 }
@@ -143,25 +140,7 @@ impl Recognizer {
         )?;
         drop(p);
 
-        ensure!(
-            std::fs::metadata(tokens.as_ref())?.len() <= 2 * 1024 * 1024,
-            "Token table exceeds 2 MiB"
-        );
-        let mut table = HashMap::new();
-        for line in std::fs::read_to_string(tokens)?.lines() {
-            let (bytes, id) = line
-                .split_once(' ')
-                .ok_or_else(|| format_err!("Invalid token line"))?;
-            let id: usize = id.parse()?;
-            ensure!(
-                id < VOCAB && table.insert(id, STANDARD.decode(bytes)?).is_none(),
-                "Invalid token ID"
-            );
-        }
-        ensure!(
-            table.len() == 50256 && (0..50256).all(|i| table.contains_key(&i)),
-            "Unexpected English token table"
-        );
+        let table = TokenTable::load(tokens.as_ref())?;
         Ok(Self {
             profile,
             encoder,
@@ -323,7 +302,7 @@ impl Recognizer {
             if token == 50256 || step == maximum {
                 break;
             }
-            if let Some(text) = self.tokens.get(&token) {
+            if let Some(text) = self.tokens.get(token) {
                 bytes.extend_from_slice(text);
             }
             offset += n;
