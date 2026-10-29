@@ -218,7 +218,7 @@ impl Parser {
         for phrase in phrases {
             if let Ok(intent) = self.parse(&phrase) {
                 let action = intent["action"].as_str().unwrap();
-                let target = if ["open_app", "focus_app"].contains(&action) {
+                let target = if ["open_app", "focus_app", "close_app"].contains(&action) {
                     grammar["app_ids"]
                         .get(intent["target"].as_str().unwrap_or(""))
                         .unwrap_or(&intent["target"])

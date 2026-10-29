@@ -88,7 +88,7 @@ WORKSPACE_FORMS = {
 }
 # Spoken application verbs -> intent action.
 APP_VERBS = {"open": "open_app", "open up": "open_app", "launch": "open_app", "start": "open_app",
-             "focus": "focus_app", "switch to": "focus_app"}
+             "focus": "focus_app", "switch to": "focus_app", "close": "close_app"}
 # Accepted when typed, but not offered to the recognizer: "open up" competes
 # with "open" and lowered the score of a plain "open firefox" (0.96 -> 0.73).
 TYPED_ONLY_VERBS = ("open up",)
@@ -115,6 +115,7 @@ def command_wording(phrase: str) -> str:
 
 REFERENCE = [
     {"category": "Applications", "title": "Open or focus an app", "examples": ["open Dolphin", "please open Firefox", "could you launch Firefox", "focus Firefox", "switch to Firefox"]},
+    {"category": "Applications", "title": "Close an app", "examples": ["close Firefox", "close Dolphin", "please close Firefox"]},
     {"category": "Workspaces", "title": "Navigate without keybindings", "examples": ["go to workspace three", "switch to workspace three", "move this window to workspace two"]},
     {"category": "Windows", "title": "Fullscreen", "examples": ["make this window fullscreen", "exit fullscreen"]},
     {"category": "Audio", "title": "Volume", "examples": ["turn the volume down", "turn down the volume", "turn the volume up", "mute volume", "turn the sound back on"]},
@@ -322,9 +323,14 @@ def closest_match(heard: str, candidates: dict, min_score: float = 0.82, min_mar
     candidates = {p: v for p, v in candidates.items() if not v.startswith("brightness_")}
     if text in candidates:
         return text, 1.0
-    text = re.sub(r"^(open|open up|launch|start|focus|switch to) the ", r"\1 ", text)
+    text = re.sub(r"^(open|open up|launch|start|focus|switch to|close) the ", r"\1 ", text)
     if text in candidates:
         return text, 1.0
+    # Closing requires a complete, exact name/alias. Never infer it from
+    # a similar open command, or turn a misheard close into an open command.
+    if text.startswith("close "):
+        return None
+    candidates = {p: v for p, v in candidates.items() if not v.startswith("close_app:")}
     if exact_only:
         return None
     words = text.split()
@@ -407,7 +413,7 @@ def match_candidates(grammar: dict, extra_apps=()) -> dict:
             intent = parser.parse(phrase)
         except ValueError:
             continue
-        target = app_ids.get(intent.target, intent.target) if intent.action in ("open_app", "focus_app") else intent.target
+        target = app_ids.get(intent.target, intent.target) if intent.action in ("open_app", "focus_app", "close_app") else intent.target
         if isinstance(target, dict):
             import json
             target = json.dumps(target, sort_keys=True, separators=(",", ":"))

@@ -15,6 +15,14 @@ class Dispatcher:
 
     def execute(self, intent):
         action = intent.action
+        if action == "close_app":
+            app = self.apps.resolve(intent.target)
+            running = self.desktop.running(app)
+            if not running:
+                raise CommandError(f"{app.name} is not running.")
+            for address in dict.fromkeys(window["address"] for window in running):
+                self.desktop.dispatch("close_address", address)
+            return f"Close requested for {app.name}"
         if action in ("open_app", "focus_app"):
             app = self.apps.resolve(intent.target)
             try:

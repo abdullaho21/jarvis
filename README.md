@@ -19,7 +19,7 @@ installation instructions below remain available for Arch/CachyOS and Hyprland.
 
 ## Features
 
-- Open or focus installed applications, with exact voice aliases.
+- Open, focus or close installed applications, with exact voice aliases.
 - Switch workspaces, move a window, set fullscreen and adjust volume.
 - Start and stop preconfigured screen recording, with automatic HDR detection.
 - Optional instant replay: the last two minutes of screen, game sound and
@@ -88,6 +88,7 @@ recognition quality. After a system Python minor upgrade, rebuild the venv;
 | Action | Examples |
 | --- | --- |
 | Applications | “open Firefox”, “launch Dolphin”, “switch to Steam” |
+| Close applications | “close Firefox”, “close Dolphin”, “please close Steam” |
 | Workspaces | “go to workspace three”, “move this window to workspace two” |
 | Fullscreen | “make this window fullscreen”, “exit fullscreen” |
 | Brightness | “set KTC brightness to sixty seven percent”, “dim Samsung”, “brighten main” |
@@ -96,7 +97,11 @@ recognition quality. After a system Python minor upgrade, rebuild the venv;
 | Instant replay | “clip that”, “save replay”, “start replay”, “stop replay” |
 | Voice control | “cancel”, “stop listening” |
 
-The **Commands** page contains the full reference. **Applications → Add voice
+The **Commands** page contains the full reference and an explicit open/close
+pair for every installed app. Search by app name or browse with Previous/Next.
+The Applications page shows the same pair on each app card. Ambiguous names
+receive an unambiguous common-word application number; existing aliases and
+custom launch words remain available. **Applications → Add voice
 name** maps a phrase to an installed desktop entry. For example:
 
 ```sh
@@ -110,8 +115,12 @@ Change it to `watch` for “Alfred, watch video”, or clear it for “Jarvis, F
 Save the word beside an existing alias, or choose it when adding a voice name.
 An optional `the` between the launch word and app name is ignored: “open the
 video” resolves the same app as “open video”. Existing aliases without a saved
-launch word retain the original open/launch/start verbs. Focus commands remain
-available. A wake name (or an explicit Listen once session) is still required.
+launch word retain the original open/launch/start verbs. Focus and close commands remain
+available. “Close Firefox” requests a normal close for every matching app
+window, including windows on other workspaces; unsaved-work prompts remain
+under the application's control. It does not force-kill background processes.
+Use the exact app name or an alias for closing; close commands are not guessed
+from similar phrases. A wake name (or an explicit Listen once session) is still required.
 
 In **Displays**, refresh monitors, give each one a name and optional aliases
 (for example, `KTC` and `k t c`), choose your main monitor, and save. Say “set KTC

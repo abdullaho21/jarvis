@@ -30,7 +30,7 @@ if program == "hyprctl":
         print(json.dumps([{"name": "DP-1", "width": 1920, "height": 1080, "focused": True,
                            "colorManagementPreset": os.environ.get("MURMUR_TEST_COLOR", "sdr")}]))
     elif args == ["-j", "clients"]:
-        print("[]")
+        print(os.environ.get("MURMUR_TEST_CLIENTS", "[]"))
     else:
         print("ok")
 elif program == "pw-dump":

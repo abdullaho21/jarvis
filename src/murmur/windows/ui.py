@@ -438,6 +438,7 @@ class Window:
         for app in result["apps"]:
             self.apps_tree.insert("", "end", values=(app["name"], app["id"]))
         self.refresh_aliases()
+        self.call("commands", self.show_app_commands)
 
     def assign_alias(self):
         selected = self.apps_tree.selection()
@@ -472,6 +473,17 @@ class Window:
         self.commands_text = tk.Text(p, height=7)
         self.commands_text.grid(row=2, column=0, columnspan=3, sticky="ew")
         self.commands_text.insert("1.0", json.dumps(self.config["commands"], indent=2))
+        self.note(p, "Open and close every installed app", 3)
+        self.application_commands = tk.Text(p, height=12, wrap="word", state="disabled")
+        self.application_commands.grid(row=4, column=0, columnspan=3, sticky="nsew")
+
+    def show_app_commands(self, result):
+        self.application_commands.configure(state="normal")
+        self.application_commands.delete("1.0", "end")
+        text = "\n\n".join(row["title"] + "\n" + " · ".join(row["examples"])
+                            for row in result.get("applications", []))
+        self.application_commands.insert("1.0", text)
+        self.application_commands.configure(state="disabled")
 
     def build_recording(self, p):
         self.record_state = tk.StringVar(value="Recorder ready")

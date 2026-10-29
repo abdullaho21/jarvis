@@ -85,6 +85,14 @@ impl Matcher {
         }
         if !text.is_empty() && !text.contains("[unk]") && self.accepts(text) {
             let strict_intent = self.intent(&wording(text, &self.prefixes, &self.suffixes));
+            if !heard.is_empty()
+                && strict_intent.is_some_and(|i| i.starts_with("close_app:"))
+                && !heard_match
+                    .as_ref()
+                    .is_some_and(|(p, _)| self.intent(p) == strict_intent)
+            {
+                return None;
+            }
             let disagreement = heard_match
                 .as_ref()
                 .is_some_and(|(p, _)| strict_intent.is_some() && self.intent(p) != strict_intent);
@@ -128,7 +136,7 @@ impl Matcher {
                     let a = a.strip_prefix("the ").unwrap_or(a);
                     self.apps.contains(a)
                         && (!self.blocked_apps.contains(a)
-                            || ["focus", "switch to"].contains(&v.as_str()))
+                            || ["focus", "switch to", "close"].contains(&v.as_str()))
                 })
             })
     }
@@ -196,7 +204,7 @@ impl Matcher {
         if self.intent(&text).is_some() {
             return Some((text, 1.0));
         }
-        if self.exact_only {
+        if self.exact_only || text.starts_with("close ") {
             return None;
         }
         let whole = text.replace(' ', "");
@@ -225,7 +233,7 @@ impl Matcher {
         let letters: Vec<_> = windows.iter().map(|w| counts(w)).collect();
         let mut intents: HashMap<&str, (f64, &str)> = HashMap::new();
         for (candidate, intent) in &self.candidates {
-            if intent.starts_with("brightness_") {
+            if intent.starts_with("brightness_") || intent.starts_with("close_app:") {
                 continue;
             }
             let target: Vec<char> = candidate.chars().filter(|&c| c != ' ').collect();
@@ -437,5 +445,52 @@ mod tests {
         };
         assert_eq!(m.closest("open steam"), Some(("open steam".into(), 1.0)));
         assert_eq!(m.closest("recording"), None);
+    }
+    #[test]
+    fn closing_uses_exact_names_and_checks_available_free_transcripts() {
+        let mut m = command_matcher();
+        m.apps.insert("visual studio code".into());
+        m.verbs = vec!["open".into(), "close".into()];
+        m.candidates = vec![
+            ("open visual studio code".into(), "open_app:code".into()),
+            ("close visual studio code".into(), "close_app:code".into()),
+        ];
+        m.blocked_apps.insert("visual studio code".into());
+        assert!(m.accepts("close visual studio code"));
+        assert!(!m.accepts("open visual studio code"));
+        assert_eq!(
+            m.closest("close visual studio code"),
+            Some(("close visual studio code".into(), 1.0))
+        );
+        for heard in [
+            "visual studio code",
+            "cloze visual studio code",
+            "close visual studio cod",
+        ] {
+            assert!(m
+                .closest(heard)
+                .is_none_or(|(p, _)| !p.starts_with("close ")));
+        }
+        // Strict-only settings still support closing without loading a
+        // second decoder. An available contradictory transcript vetoes it.
+        assert!(m
+            .choose("close visual studio code", Some(1.0), "", None)
+            .is_some());
+        assert!(m
+            .choose(
+                "close visual studio code",
+                Some(1.0),
+                "open visual studio code",
+                Some(("open visual studio code".into(), 1.0))
+            )
+            .is_none());
+        assert!(m
+            .choose(
+                "close visual studio code",
+                Some(1.0),
+                "close visual studio code",
+                Some(("close visual studio code".into(), 1.0))
+            )
+            .is_some());
     }
 }

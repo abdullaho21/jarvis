@@ -553,10 +553,16 @@ impl Service {
                 )
             }
             "config" => return Ok(json!({"ok":true,"config":self.config})),
-            "commands" => return Ok(json!({"ok":true,"commands":policy::TABLES["REFERENCE"]})),
+            "commands" => {
+                return Ok(
+                    json!({"ok":true,"commands":policy::TABLES["REFERENCE"],"applications":self.apps.voice_commands(&self.parser)?}),
+                )
+            }
             "apps" => {
                 let apps = Registry::scan(&self.config["aliases"], None);
-                let changed = apps.index.keys().ne(self.apps.index.keys());
+                let changed = apps.index.keys().ne(self.apps.index.keys())
+                    || apps.voice_commands(&self.parser)?
+                        != self.apps.voice_commands(&self.parser)?;
                 self.apps = Arc::new(apps);
                 if changed
                     && self.worker.is_some()
@@ -749,6 +755,23 @@ async fn dispatch(
 ) -> Result<String> {
     let action = intent["action"].as_str().ok_or("Invalid action")?;
     match action {
+        "close_app" => {
+            let app = apps.resolve(intent["target"].as_str().unwrap_or(""))?;
+            let windows = desktop.running(app).await?;
+            if windows.is_empty() {
+                return err(format!("{} is not running.", app.name));
+            }
+            let mut addresses = std::collections::BTreeSet::new();
+            for window in &windows {
+                let address = window["address"].as_str().ok_or("Invalid window address")?;
+                desktop::dispatch_args("close_address", &json!(address))?;
+                addresses.insert(address);
+            }
+            for address in addresses {
+                desktop.dispatch("close_address", &json!(address)).await?;
+            }
+            Ok(format!("Close requested for {}", app.name))
+        }
         "open_app" | "focus_app" => {
             let app = apps.resolve(intent["target"].as_str().unwrap_or(""))?;
             let windows = match desktop.running(app).await {

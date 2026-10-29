@@ -288,7 +288,14 @@ fn diagnostic(request: &Value) -> Result<Value> {
                 .as_str()
                 .map(|name| apps.resolve(name).map(|app| json!(app)))
                 .transpose()?;
-            Ok(json!({"apps":apps.list(),"resolved":resolved}))
+            let parser = if let Some(config) = request.get("config") {
+                policy::Parser::from_config(&config::validate(config)?)?
+            } else {
+                policy::Parser::new(&json!({}))?
+            };
+            Ok(
+                json!({"apps":apps.list(),"resolved":resolved,"applications":apps.voice_commands(&parser)?,"grammar":apps.grammar(&parser)?}),
+            )
         }
         "classes" => {
             let app: apps::App = serde_json::from_value(request["app"].clone())?;

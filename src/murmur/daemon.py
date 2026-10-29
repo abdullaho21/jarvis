@@ -101,9 +101,11 @@ class Service:
 
     def voice_grammar(self) -> dict:
         """Command grammar plus which desktop entry each spoken app name opens."""
-        grammar = self.parser.grammar(list(self.apps.index))
+        names = list(self.apps.index)
+        names.extend(row["voice_name"] for row in self.apps.voice_commands(self.parser))
+        grammar = self.parser.grammar(names)
         app_ids = {}
-        for name in self.apps.index:
+        for name in names:
             try:
                 app_ids[name] = self.apps.resolve(name).id
             except CommandError:
@@ -366,7 +368,7 @@ class Service:
                     app["speakable"] = any("open " + normalize(n) not in excluded for n in [app["name"], *app["aliases"]] if len(n) <= 256)
             return {"ok": True, "apps": entries}
         if op == "commands":
-            return {"ok": True, "commands": REFERENCE}
+            return {"ok": True, "commands": REFERENCE, "applications": self.apps.voice_commands(self.parser)}
         if op == "devices":
             return {"ok": True, "devices": await asyncio.to_thread(devices)}
         if op == "recording_devices":

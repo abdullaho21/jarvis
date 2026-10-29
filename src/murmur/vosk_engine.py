@@ -107,7 +107,7 @@ class VoskEngine:
         blocked = set(grammar.get("blocked_apps", []))
         self._verbs = sorted(verbs, key=len, reverse=True)
         full = list(known) + [f"{verb}{article} {app}" for verb in verbs for app in spoken_apps
-                              if self._sounds_like.get(app, app) not in blocked or verb in ("focus", "switch to")
+                              if self._sounds_like.get(app, app) not in blocked or verb in ("focus", "switch to", "close")
                               for article in ("", " the")]
         for p, alias in self._rules.launches.items():
             article = p[:-len(alias)] + "the " + alias
@@ -436,6 +436,11 @@ class VoskEngine:
         confidence = self._confidence(result)
         if text and "[unk]" not in text and self._matcher.accepts(text):
             strict_intent = self._candidates.get(command_wording(text)) if self._candidates else None
+            if heard and strict_intent and strict_intent.startswith("close_app:") and (
+                not heard_match or self._candidates[heard_match[0]] != strict_intent
+            ):
+                self.unmatched = heard or text
+                return None
             if heard_match and strict_intent and self._candidates[heard_match[0]] != strict_intent:
                 if heard_match[1] < CROSS_CHECK_OVERRIDE:
                     self.unmatched = heard or text

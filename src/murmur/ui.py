@@ -92,6 +92,8 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         self._watch_stop = threading.Event()
         self._watch_thread: threading.Thread | None = None
         self._command_rows: list[tuple[Any, str]] = []
+        self._command_data: list[dict] = []
+        self._command_page = 0
         self._devices: list[dict] = []
         self._monitors: list[dict] = []
         self._recording_devices: list[dict] = []
@@ -279,6 +281,7 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
 
         ideas = self._card("Small phrases. Useful actions.", "After activation, try one of the supported commands.")
         for phrase, detail in [("“Open Firefox”", "Find and launch an installed app"),
+                               ("“Close Firefox”", "Close the app's windows normally"),
                                ("“Go to workspace three”", "Move around Hyprland"),
                                ("“Start recording”", "Capture without leaving your game")]:
             line = _box(4)
@@ -297,6 +300,14 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         body.append(self.command_search)
         self.command_list = _box(12)
         body.append(self.command_list)
+        navigation = _box(8, True)
+        self.command_previous = _button("Previous", lambda: self._change_command_page(-1))
+        self.command_next = _button("Next", lambda: self._change_command_page(1))
+        self.command_count = _label("", "caption")
+        navigation.append(self.command_previous)
+        navigation.append(self.command_count)
+        navigation.append(self.command_next)
+        body.append(navigation)
         custom = self._card("Your command shortcuts", "A shortcut maps a whole phrase to a supported command. No shell commands are accepted.")
         self.phrase_list = _box(8)
         custom.append(self.phrase_list)
@@ -312,7 +323,7 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
         body.append(custom)
 
     def _applications_page(self) -> None:
-        body = self._page("applications", "Give your apps familiar names.", "Jarvis discovers your installed desktop applications. Aliases are exact names you can say.")
+        body = self._page("applications", "Give your apps familiar names.", "Open, focus or close your installed desktop applications. Aliases work with all three commands.")
         self.app_search = Gtk.SearchEntry()
         self.app_search.set_placeholder_text("Search installed applications")
         self.app_search.connect("search-changed", lambda _entry: self._render_apps())
@@ -773,13 +784,16 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
             self._load_settings()
         self._apply_devices(result.get("devices", {}), result.get("monitors", {}), result.get("recording_devices", {}))
         self._apps = result.get("apps", {}).get("apps", [])
+        pairs = {row["app_id"]: row["examples"] for row in result.get("commands", {}).get("applications", [])}
+        for app in self._apps:
+            app["voice_commands"] = pairs.get(app["id"], [])
         self._grammar_signature = None
         self.app_grammar_notice.set_visible(False)
         self.voice_grammar_notice.set_visible(False)
         self._render_apps()
         self._render_aliases()
         self._render_displays()
-        self._render_commands(result.get("commands", {}).get("commands", []))
+        self._render_commands([*result.get("commands", {}).get("commands", []), *result.get("commands", {}).get("applications", [])])
         self._render_phrases()
         self._set_status(result)
         self._notice("Connected to the local service. Settings are saved only when you choose Save.")
@@ -1041,24 +1055,37 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
             container.remove(child)
 
     def _render_commands(self, commands: list) -> None:
-        self._clear(self.command_list)
-        self._command_rows = []
-        for command in commands:
-            examples = command.get("examples", [])
-            card = self._card(str(command.get("title", "Command")), str(command.get("category", "Desktop")))
-            for example in examples:
-                card.append(_label(f"“{example}”", "example"))
-            self.command_list.append(card)
-            search = " ".join([str(command.get("title", "")), str(command.get("category", "")), *map(str, examples)]).casefold()
-            self._command_rows.append((card, search))
-        if not commands:
-            self.command_list.append(_label("Connect to the service to load the supported command reference.", "caption"))
-        self._filter_commands()
+        self._command_data = commands
+        self._command_page = 0
+        self._render_command_page()
 
     def _filter_commands(self, _entry: Any = None) -> None:
+        self._command_page = 0
+        self._render_command_page()
+
+    def _change_command_page(self, delta: int) -> None:
+        self._command_page += delta
+        self._render_command_page()
+
+    def _render_command_page(self) -> None:
+        self._clear(self.command_list)
+        self._command_rows = []
         needle = self.command_search.get_text().casefold().strip()
-        for widget, haystack in self._command_rows:
-            widget.set_visible(not needle or needle in haystack)
+        matches = [command for command in self._command_data if not needle or needle in " ".join([
+            str(command.get("title", "")), str(command.get("category", "")),
+            str(command.get("app_id", "")), *map(str, command.get("examples", []))]).casefold()]
+        self._command_page = max(0, min(self._command_page, max(0, (len(matches) - 1) // 30)))
+        start = self._command_page * 30
+        for command in matches[start:start + 30]:
+            card = self._card(str(command.get("title", "Command")), str(command.get("category", "Desktop")))
+            for example in command.get("examples", []):
+                card.append(_label(f"“{example}”", "example"))
+            self.command_list.append(card)
+        self.command_count.set_text(f"{start + 1 if matches else 0}–{min(start + 30, len(matches))} of {len(matches)} entries")
+        self.command_previous.set_sensitive(self._command_page > 0)
+        self.command_next.set_sensitive(start + 30 < len(matches))
+        if not matches:
+            self.command_list.append(_label("No matching commands." if self._command_data else "Connect to load commands for every installed app.", "caption"))
 
     def _render_apps(self) -> None:
         self._clear(self.app_list)
@@ -1075,6 +1102,8 @@ class JarvisWindow(Gtk.ApplicationWindow if Gtk else object):
                 aliases = app.get("voice_aliases", [])
                 detail = f"The direct name is unavailable. Say “Open {aliases[0]}” using your alias." if aliases else "This name is outside the speech dictionary. Add an alias using common English words."
                 row.append(_label(detail, "caption"))
+            for phrase in app.get("voice_commands", []):
+                row.append(_label(f"“{phrase}”", "example"))
             row.append(self._voice_name_editor(app))
             self.app_list.append(row)
         if len(visible) > 30:

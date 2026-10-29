@@ -270,7 +270,7 @@ impl Engine {
             for a in &spoken_apps {
                 let original = sounds.get(a).unwrap_or(a);
                 if grammar.blocked_apps.contains(original)
-                    && !["focus", "switch to"].contains(&v.as_str())
+                    && !["focus", "switch to", "close"].contains(&v.as_str())
                 {
                     continue;
                 }
