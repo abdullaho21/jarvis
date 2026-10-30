@@ -48,6 +48,21 @@ class ApplicationCatalogTests(unittest.TestCase):
         self.assertTrue(registry.rescan())
         self.assertEqual(len(registry.voice_commands(parser)), len(entries) + 1)
 
+    def test_display_names_precede_sorted_aliases_and_rescans_refresh_alternatives(self):
+        aliases = {'aaa': 'primary.desktop', 'zulu': 'zz-a.desktop', 'alpha': 'zz-a.desktop'}
+        registry, _ = self.make_registry([('primary.desktop', 'Primary'),
+                                         ('zz-a.desktop', 'Shared'), ('zz-b.desktop', 'Shared')], aliases)
+        parser = Parser()
+        names = lambda: {row['app_id']: row['voice_name'] for row in registry.voice_commands(parser)}
+        self.assertEqual(names(), {'primary.desktop': 'primary', 'zz-a.desktop': 'alpha',
+                                   'zz-b.desktop': 'zz b'})
+        aliases['aardvark'] = 'zz-a.desktop'
+        registry.rescan()
+        self.assertEqual(names()['zz-a.desktop'], 'aardvark')
+        del aliases['aardvark']
+        registry.rescan()
+        self.assertEqual(names()['zz-a.desktop'], 'alpha')
+
     def test_native_catalog_and_grammar_match_python_for_every_entry(self):
         binary = ROOT/'native/controller/target/release/jarvis-controller'
         if not binary.exists(): self.skipTest('build native controller')

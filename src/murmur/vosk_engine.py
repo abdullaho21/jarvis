@@ -101,7 +101,7 @@ class VoskEngine:
         self.unsupported_phrases = [p for p in self.unsupported_phrases
                                     if p.removeprefix("open ") not in self._sounds_like.values()]
         # The matcher checks text after _canonical(), so it knows the real names.
-        self._matcher = GrammarMatcher(known, (spoken_apps + list(self._sounds_like.values())) if verbs else (), verbs)
+        self._matcher = GrammarMatcher(self.phrases, (spoken_apps + list(self._sounds_like.values())) if verbs else (), verbs)
         from .phrases import Rules, brightness_like
         self._rules = Rules(grammar.get("launches"), grammar.get("brightness_names"))
         blocked = set(grammar.get("blocked_apps", []))
@@ -119,7 +119,7 @@ class VoskEngine:
         # Polite forms only for the shorter built-in phrases, to keep the
         # strict grammar small; app commands get them via closest-match.
         full += [f"{prefix} {phrase}" for prefix in prefixes for phrase in known if not brightness_like(phrase)]
-        self._command_phrases = sorted(set(full))
+        command_phrases = sorted(set(full))
 
         # Closest-match may also pick apps whose names the model can't spell
         # (e.g. "stremio" heard as "stream io"), which the strict grammar can't.
@@ -144,10 +144,10 @@ class VoskEngine:
         # The wake grammar also knows the command words, so "hey jarvis open
         # firefox" in one breath is decoded as words rather than forced into
         # [unk] (which made the wake words themselves less likely to match).
-        wake_grammar = self._wake_forms + [f"{' '.join(name)} {c}" for name in self._wake_names for c in self._command_phrases]
+        wake_grammar = self._wake_forms + [f"{' '.join(name)} {c}" for name in self._wake_names for c in command_phrases]
         self._wake = KaldiRecognizer(self._model, SAMPLE_RATE, json.dumps(wake_grammar + ["[unk]"]))
         self._wake.SetWords(True)
-        self._command = KaldiRecognizer(self._model, SAMPLE_RATE, json.dumps(self._command_phrases + ["[unk]"]))
+        self._command = KaldiRecognizer(self._model, SAMPLE_RATE, json.dumps(command_phrases + ["[unk]"]))
         self._command.SetWords(True)
         self._open = KaldiRecognizer(self._model, SAMPLE_RATE) if fuzzy or self._rules.monitors else None
         self._mode: str | None = None

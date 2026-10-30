@@ -232,6 +232,9 @@ impl Matcher {
         let windows: Vec<Vec<char>> = windows.iter().map(|s| s.chars().collect()).collect();
         let letters: Vec<_> = windows.iter().map(|w| counts(w)).collect();
         let mut intents: HashMap<&str, (f64, &str)> = HashMap::new();
+        // Reuse temporary matching storage for all windows and candidates in
+        // this request, then release it instead of retaining a growing cache.
+        let mut scratch = MatchScratch::default();
         for (candidate, intent) in &self.candidates {
             if intent.starts_with("brightness_") || intent.starts_with("close_app:") {
                 continue;
@@ -255,7 +258,7 @@ impl Matcher {
                 if bound < 0.82 - 0.06 || bound <= best {
                     continue;
                 }
-                best = best.max(matching_size(w, &target) as f64 / longest);
+                best = best.max(matching_size(w, &target, &mut scratch) as f64 / longest);
             }
             if best > intents.get(intent.as_str()).map_or(0.0, |x| x.0) {
                 intents.insert(intent, (best, candidate));
@@ -278,14 +281,23 @@ fn counts(chars: &[char]) -> HashMap<char, usize> {
     result
 }
 
-fn matching_size(a: &[char], b: &[char]) -> usize {
-    let mut todo = vec![(0, a.len(), 0, b.len())];
+#[derive(Default)]
+struct MatchScratch {
+    todo: Vec<(usize, usize, usize, usize)>,
+    row: Vec<usize>,
+}
+
+fn matching_size(a: &[char], b: &[char], scratch: &mut MatchScratch) -> usize {
+    let MatchScratch { todo, row } = scratch;
+    todo.clear();
+    todo.push((0, a.len(), 0, b.len()));
     let mut total = 0;
     while let Some((alo, ahi, blo, bhi)) = todo.pop() {
         let (mut ai, mut bj, mut size) = (alo, blo, 0);
         // Carry the preceding diagonal in a scalar; one row suffices for the
         // longest-block recurrence and avoids an allocation per input character.
-        let mut row = vec![0; bhi - blo + 1];
+        row.resize(bhi - blo + 1, 0);
+        row.fill(0);
         for (i, &ac) in a.iter().enumerate().take(ahi).skip(alo) {
             let mut diagonal = 0;
             for j in blo..bhi {
@@ -414,17 +426,83 @@ mod tests {
         assert_eq!(
             matching_size(
                 &"tide".chars().collect::<Vec<_>>(),
-                &"diet".chars().collect::<Vec<_>>()
+                &"diet".chars().collect::<Vec<_>>(),
+                &mut MatchScratch::default(),
             ),
             1
         );
         assert_eq!(
             matching_size(
                 &"diet".chars().collect::<Vec<_>>(),
-                &"tide".chars().collect::<Vec<_>>()
+                &"tide".chars().collect::<Vec<_>>(),
+                &mut MatchScratch::default(),
             ),
             2
         );
+    }
+    // Independent, deliberately simple reference: scan matching runs directly
+    // and recursively score the sections surrounding the longest block.
+    fn reference_matching_size(a: &[char], b: &[char]) -> usize {
+        let (mut ai, mut bj, mut size) = (0, 0, 0);
+        for i in 0..a.len() {
+            for j in 0..b.len() {
+                let length = a[i..]
+                    .iter()
+                    .zip(&b[j..])
+                    .take_while(|(ac, bc)| ac == bc)
+                    .count();
+                if length > size {
+                    (ai, bj, size) = (i, j, length);
+                }
+            }
+        }
+        if size == 0 {
+            0
+        } else {
+            size + reference_matching_size(&a[..ai], &b[..bj])
+                + reference_matching_size(&a[ai + size..], &b[bj + size..])
+        }
+    }
+    #[test]
+    fn scratch_reuse_matches_reference_for_repeated_unicode_and_unequal_inputs() {
+        let mut inputs = vec![Vec::new()];
+        let mut level = vec![Vec::new()];
+        for _ in 0..4 {
+            level = level
+                .iter()
+                .flat_map(|prefix| {
+                    ['a', 'b', '🦊'].map(|c| {
+                        let mut word = prefix.clone();
+                        word.push(c);
+                        word
+                    })
+                })
+                .collect();
+            inputs.extend(level.iter().cloned());
+        }
+        inputs.extend(
+            [
+                "tide",
+                "diet",
+                "abacadabra🦊abacadabra",
+                "🦊abracadabra🦊abra",
+                "aaaaaaaaaaaaaaaaaaaa",
+                "baaaaaaabaaaaaaab",
+                "é界é界 abcdef é界é界",
+            ]
+            .into_iter()
+            .map(|s| s.chars().collect::<Vec<_>>()),
+        );
+        let mut scratch = MatchScratch::default();
+        for a in &inputs {
+            for b in &inputs {
+                assert_eq!(
+                    matching_size(a, b, &mut scratch),
+                    reference_matching_size(a, b),
+                    "{a:?}, {b:?}"
+                );
+            }
+        }
     }
     #[test]
     fn ambiguous_commands_and_partial_words_are_rejected() {

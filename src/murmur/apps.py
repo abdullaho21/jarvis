@@ -167,15 +167,29 @@ class AppRegistry:
             self._fallbacks[name] = identity
 
     def voice_commands(self, parser):
+        names_by_app = None
+
+        def candidates(app):
+            nonlocal names_by_app
+            # Most apps resolve by display name. Build the reverse index only
+            # when an ambiguous or reserved name needs an alternative.
+            yield self._display(app)
+            if names_by_app is None:
+                names_by_app = {}
+                for name in sorted(self.index):
+                    for identity in {entry.id for entry in self.index[name]}:
+                        names_by_app.setdefault(identity, []).append(name)
+                for name, identity in self._fallbacks.items():
+                    names_by_app.setdefault(identity, []).append(name)
+            yield from names_by_app.pop(app.id, ())
+
         result = []
         for app in sorted(self.apps.values(), key=lambda a: (a.name.casefold(), a.id)):
-            preferred = self._display(app)
-            candidates = [preferred, *sorted(name for name, entries in self.index.items()
-                          if any(a.id == app.id for a in entries)),
-                          *(name for name, identity in self._fallbacks.items() if identity == app.id)]
-            for name in dict.fromkeys(candidates):
-                if not name:
+            seen = set()
+            for name in candidates(app):
+                if not name or name in seen:
                     continue
+                seen.add(name)
                 try:
                     intents = [parser.parse(f'{verb} {name}') for verb in ('open', 'close')]
                     if any(intent.action != action or self.resolve(intent.target).id != app.id
@@ -188,6 +202,8 @@ class AppRegistry:
                 break
             else:
                 raise CommandError(f'Cannot assign open/close commands to {app.name}')
+            if names_by_app is not None:
+                names_by_app.pop(app.id, None)
         return result
 
     def resolve(self, phrase: str) -> App:

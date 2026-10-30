@@ -320,17 +320,15 @@ def closest_match(heard: str, candidates: dict, min_score: float = 0.82, min_mar
                     monitors[name] = json.loads(value.split(":", 1)[1])["monitor"]
         canonical = Rules(monitors=monitors).canonical(text)
         return (canonical, 1.0) if canonical in candidates else None
-    candidates = {p: v for p, v in candidates.items() if not v.startswith("brightness_")}
-    if text in candidates:
+    if text in candidates and not candidates[text].startswith("brightness_"):
         return text, 1.0
     text = re.sub(r"^(open|open up|launch|start|focus|switch to|close) the ", r"\1 ", text)
-    if text in candidates:
+    if text in candidates and not candidates[text].startswith("brightness_"):
         return text, 1.0
     # Closing requires a complete, exact name/alias. Never infer it from
     # a similar open command, or turn a misheard close into an open command.
     if text.startswith("close "):
         return None
-    candidates = {p: v for p, v in candidates.items() if not v.startswith("close_app:")}
     if exact_only:
         return None
     words = text.split()
@@ -358,6 +356,10 @@ def _closest(windows, candidates, min_score, min_margin):
     letters = {window: Counter(window) for window in windows}
     best_by_intent: dict[str, tuple[float, str]] = {}
     for candidate, intent in candidates.items():
+        # Exclude exact-only actions while iterating, without copying the full
+        # candidate dictionary for each matching pass.
+        if intent.startswith(("brightness_", "close_app:")):
+            continue
         target = _squash(candidate)
         target_letters = matcher = None
         best = 0.0

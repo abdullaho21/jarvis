@@ -127,6 +127,9 @@ def run(config: dict, mode: str, grammar: dict | list[str]):
             frame_bytes = engine.frame_bytes
         else:
             frame_bytes = 960
+        # Native decoders own the compiled grammar; initialization scaffolding
+        # need not stay resident while this worker waits for microphone frames.
+        del grammar
         if is_windows():
             from .windows.audio import VoiceIO, CommandTranscriber
             capture = selector = VoiceIO(config)
@@ -312,7 +315,11 @@ def main():
         if len(line) > 1048576:
             raise ValueError("Voice configuration exceeds 1 MiB")
         payload = json.loads(line)
-        run(payload["config"], payload["mode"], payload.get("grammar", payload.get("phrases")))
+        del line
+        # Transfer arguments out of the payload so the caller does not retain
+        # a second owner of the source grammar throughout the worker loop.
+        run(payload.pop("config"), payload.pop("mode"),
+            payload.pop("grammar", payload.pop("phrases", None)))
     except Exception as exc:
         emit(event="error", message="Voice worker configuration: " + str(exc))
 
