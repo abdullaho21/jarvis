@@ -30,6 +30,7 @@ from .system import release_unused_memory
 RELEASE_MEMORY_AFTER_MS = 4000
 MAX_SEPARATE_APPS = 4   # config.validate allows this many
 MAX_OUTPUTS = config.MAX_OUTPUTS   # sound outputs one capture records at once
+MAX_INPUTS = config.MAX_INPUTS   # microphones one capture records at once
 DEFAULT_MICROPHONE = "Default Windows microphone"
 PRIMARY_DISPLAY = "Looking for displays…"   # shown only until the service lists them
 SEE_THROUGH = "#ff00fe"   # the message window's corners: Windows shows what's behind wherever this colour is
@@ -147,6 +148,7 @@ class Tabs:
 
     def __init__(self, window, bar, holder, items):
         self.window, self.frames, self.buttons = window, {}, {}
+        self.on_show = None   # called with a tab's key when it is shown
         for key, label in items:
             frame = ttk.Frame(holder)
             frame.columnconfigure(0, weight=1)
@@ -168,6 +170,8 @@ class Tabs:
         if current in self.window.canvases:
             self.window.canvases[current].yview_moveto(0)
             self.window.rewrap()
+        if self.on_show:
+            self.on_show(key)
 
 
 class Window:
@@ -464,6 +468,11 @@ class Window:
         self.load_apps()
         if hasattr(self, "sound_watch"):
             self.watch_sound_apps(key == "recording")
+        if hasattr(self, "clips"):
+            if key == "clips":
+                self.clips.shown()   # new clips appear each time the page opens
+            else:
+                self.clips.player.pause()   # a clip playing stops when its page is left
 
     def load_apps(self):
         """Fill the app list when first seen; otherwise it stays empty until someone finds Refresh."""
@@ -1174,8 +1183,24 @@ class Window:
         self.choice(source, "Color", "recording", "color_mode", {"Automatic": "auto", "SDR": "sdr", "HDR": "hdr"})
         self.text(source, "Save to", "recording", "output_dir")
         self.buttons(source, [("Refresh displays", lambda: self.call("monitors", self.load_displays)), ("Choose folder…", self.browse)])
-        self.switch(source, "System sound", "recording", "system_audio", "The Windows default output.")
-        self.switch(source, "Microphone", "recording", "microphone", "The Windows default input.")
+        # The sound outputs and microphones recorded, ticked right here (also listed
+        # under Instant replay › Recording audio: one choice for both).
+        legacy = self.config["replay"].get("mic_device", "")
+        self.inputs = list(self.config["replay"].get("inputs") or ([legacy] if legacy else []))
+        self.outputs = list(self.config["replay"].get("outputs", []))
+        self.input_found, self.output_found = [], []
+        self.input_holders, self.output_holders = [], []
+        self.input_note, self.output_note = tk.StringVar(), tk.StringVar()
+        self.switch(source, "System sound", "recording", "system_audio",
+                    f"Tick the sound outputs to record (up to {MAX_OUTPUTS}), each on its own track. None ticked: "
+                    "everything you hear with All audio, or the game and apps chosen under Instant replay with Specific apps.")
+        self.device_list(source, "output")
+        self.switch(source, "Microphone", "recording", "microphone",
+                    f"Tick the microphones to record (up to {MAX_INPUTS}), each on its own track. None ticked: the "
+                    "Windows default microphone.")
+        self.device_list(source, "input")
+        self.buttons(source, [("Refresh sound devices", lambda: self.call(
+            "recording_devices", lambda result: self.load_recording_devices(result, quiet=False)))])
         self.switch(source, "Folder for each game", "recording", "game_folders")
         self.switch(source, "Recording sounds", "recording", "sound_feedback")
         self.switch(source, "Voice commands can start recordings", "recording", "configured", "Turns on after your first recording.")
@@ -1216,25 +1241,17 @@ class Window:
         self.row(sound, "Separate audio tracks", separate,
                  "Each sound on its own track too, after one with them all, so you can mute one in Clips.")
         self.show_sound_apps()
-        # Recordings' own microphone, apart from the one voice commands listen on.
-        self.rec_mic_ids = {DEFAULT_MICROPHONE: ""}
-        self.variable("replay", "mic_device")   # saved with the other settings
-        self.rec_mic_name = tk.StringVar(value=microphone_name(self.config["replay"].get("mic_device", "")))
-        self.rec_mic_choice = ttk.Combobox(sound, textvariable=self.rec_mic_name, state="readonly", width=30,
-                                           values=list(dict.fromkeys([DEFAULT_MICROPHONE, self.rec_mic_name.get()])))
-        self.rec_mic_choice.bind("<<ComboboxSelected>>", lambda _: self.pick_recording_microphone())
-        self.row(sound, "Microphone for recordings", self.rec_mic_choice,
-                 "Can differ from the one voice commands listen on (Voice page).")
+        # Recordings' own microphones, apart from the one voice commands listen on.
+        self.row(sound, "Microphones", ttk.Frame(sound, style="Card.TFrame"),
+                 f"Tick up to {MAX_INPUTS} (headset, desk microphone…), each on its own track. None ticked records "
+                 "the Windows default microphone. Apart from the one voice commands listen on (Voice page).")
+        self.input_rows = self.device_list(sound, "input")
         # Sound outputs: people split game, chat, music and browser across outputs.
-        self.outputs = list(self.config["replay"].get("outputs", []))
-        self.output_found = []
         self.row(sound, "Sound outputs", ttk.Frame(sound, style="Card.TFrame"),
-                 f"With All audio: tick up to {MAX_OUTPUTS} outputs (game, chat, music…), each on its own track. "
-                 "None ticked records the default output.")
-        self.output_rows = self.wide(sound, ttk.Frame(sound, style="Card.TFrame", borderwidth=0))
-        self.output_note = tk.StringVar()
-        self.wide(sound, self.wrapping(ttk.Label(sound, textvariable=self.output_note, style="Caption.TLabel", justify="left")))
-        self.show_outputs()
+                 f"Tick up to {MAX_OUTPUTS} outputs (game, chat, music…), each on its own track. With All audio, "
+                 "none ticked records the Windows default output. With Specific apps, a ticked output is recorded "
+                 "whole beside the apps, so don't also tick an app that plays on it.")
+        self.output_rows = self.device_list(sound, "output")
 
         extra = self.group(tabs["replay"], "Storage")
         self.choice(extra, "Storage", "replay", "storage", {"RAM": "ram", "Disk (continuous writes)": "disk"},
@@ -1310,7 +1327,7 @@ class Window:
         ticked = [n.strip() for n in self.separate_app.get().split(",") if n.strip()]
         rows = [("game_track", "Game audio", "The game running now, found by itself.", "game") if specific else
                 ("game_audio", "Game and desktop sound", "Everything you hear.", "desktop"),
-                ("microphone", "Microphone", "Your voice, from the microphone chosen for recordings.", "microphone")]
+                ("microphone", "Microphone", "Your voice, from the microphones ticked below.", "microphone")]
         playing = set()
         if specific:
             names = list(ticked)
@@ -1352,36 +1369,68 @@ class Window:
     def load_recording_devices(self, result, quiet=True):
         """Microphones for the recordings list, and the sound outputs that can be recorded."""
         devices = [d for d in result.get("devices", []) if isinstance(d.get("id"), str)]
-        self.rec_mic_ids = {DEFAULT_MICROPHONE: ""}
-        for item in devices:
-            if item["id"].startswith("input:") and not item.get("monitor"):
-                self.rec_mic_ids[microphone_name(item["id"])] = item["id"]
-        names = list(self.rec_mic_ids)
-        if self.rec_mic_name.get() not in names:   # the saved one is unplugged: still show it
-            names.append(self.rec_mic_name.get())
-        self.rec_mic_choice.configure(values=names)
+        self.input_found = [d["id"] for d in devices if d["id"].startswith("input:") and not d.get("monitor")]
+        self.show_inputs()
         self.output_found = [d["id"] for d in devices if d.get("monitor") and d["id"].startswith("loopback:")]
         self.show_outputs()
         if not quiet:
-            self.say(f"Found {len(self.rec_mic_ids) - 1} microphones and {len(self.output_found)} sound outputs.")
+            self.say(f"Found {len(self.input_found)} microphones and {len(self.output_found)} sound outputs.")
 
-    def pick_recording_microphone(self):
-        name = self.rec_mic_name.get()
-        self.variable("replay", "mic_device").set(self.rec_mic_ids.get(name, "" if name == DEFAULT_MICROPHONE else f"input:{name}"))
-        self.changed(300)
+    def device_list(self, card, kind):
+        """Tick boxes for the microphones ("input") or sound outputs ("output") recorded.
+        Every list of one kind shows the same choice, wherever it is."""
+        holder = self.wide(card, ttk.Frame(card, style="Card.TFrame", borderwidth=0))
+        getattr(self, kind + "_holders").append(holder)
+        (self.show_inputs if kind == "input" else self.show_outputs)()
+        return holder
+
+    def show_inputs(self):
+        """A switch per microphone: the ticked ones first (also when unplugged), then the rest."""
+        listed = list(dict.fromkeys([*self.inputs, *self.input_found]))
+        for holder in self.input_holders:
+            for child in holder.winfo_children():
+                child.destroy()
+            for row, device in enumerate(listed):
+                chosen = tk.BooleanVar(value=device in self.inputs)
+                title = microphone_name(device)
+                if self.input_found and device not in self.input_found:
+                    title += "  · not connected"
+                ttk.Checkbutton(holder, text=title, variable=chosen,
+                                command=lambda d=device, v=chosen: self.tick_input(d, v)).grid(row=row, column=0, sticky="w", pady=3)
+            if not listed:
+                ttk.Label(holder, text="Your microphones appear here once Jarvis is running.",
+                          style="Caption.TLabel").grid(row=0, column=0, sticky="w")
+        self.input_note.set("" if listed else "Your microphones appear here once Jarvis is running.")
+
+    def tick_input(self, device, chosen):
+        inputs = [i for i in self.inputs if i != device]
+        if chosen.get():
+            if len(inputs) >= MAX_INPUTS:
+                chosen.set(False)
+                self.say(f"Up to {MAX_INPUTS} microphones can be recorded at once.", error=True)
+                return
+            inputs.append(device)
+        self.inputs = inputs
+        self.show_inputs()   # the other list shows it too
+        self.changed(400)
+        self.estimate()   # more tracks: less replay fits the budget
 
     def show_outputs(self):
         """A switch per sound output: the ticked ones first (also when unplugged), then the rest."""
-        for child in self.output_rows.winfo_children():
-            child.destroy()
         listed = list(dict.fromkeys([*self.outputs, *self.output_found]))
-        for row, output in enumerate(listed):
-            chosen = tk.BooleanVar(value=output in self.outputs)
-            title = output.removeprefix("loopback:").removesuffix(" [Loopback]")
-            if self.output_found and output not in self.output_found:
-                title += "  · not connected"
-            ttk.Checkbutton(self.output_rows, text=title, variable=chosen,
-                            command=lambda o=output, v=chosen: self.tick_output(o, v)).grid(row=row, column=0, sticky="w", pady=3)
+        for holder in self.output_holders:
+            for child in holder.winfo_children():
+                child.destroy()
+            for row, output in enumerate(listed):
+                chosen = tk.BooleanVar(value=output in self.outputs)
+                title = output.removeprefix("loopback:").removesuffix(" [Loopback]")
+                if self.output_found and output not in self.output_found:
+                    title += "  · not connected"
+                ttk.Checkbutton(holder, text=title, variable=chosen,
+                                command=lambda o=output, v=chosen: self.tick_output(o, v)).grid(row=row, column=0, sticky="w", pady=3)
+            if not listed:
+                ttk.Label(holder, text="Your sound outputs appear here once Jarvis is running.",
+                          style="Caption.TLabel").grid(row=0, column=0, sticky="w")
         self.output_note.set("" if listed else "Your sound outputs appear here once Jarvis is running.")
 
     def tick_output(self, output, chosen):
@@ -1393,6 +1442,7 @@ class Window:
                 return
             outputs.append(output)
         self.outputs = outputs
+        self.show_outputs()   # the other list shows it too
         self.changed(400)
         self.estimate()   # more tracks: less replay fits the budget
 
@@ -1599,6 +1649,9 @@ class Window:
         ]
         if hasattr(self, "outputs") and "outputs" in value["replay"]:
             value["replay"]["outputs"] = list(self.outputs)
+        if hasattr(self, "inputs") and "inputs" in value["replay"]:
+            value["replay"]["inputs"] = list(self.inputs)
+            value["replay"]["mic_device"] = ""   # now part of inputs
         if hasattr(self, "volumes") and "volumes" in value["replay"]:
             # Only what differs from 100%, for sounds that are still in the list.
             kept = {"game", "desktop", "microphone", *value["replay"]["separate_apps"]}

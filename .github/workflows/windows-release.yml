@@ -1,7 +1,9 @@
-name: Publish Windows 1.1
+name: Publish Windows 1.2
+# Runs once the 1.2 version lands on main (the merged pull request), and on demand.
+# The script waits for the repository's tests on the same commit before publishing.
 on:
   push:
-    branches: [codex/release-1.1]
+    branches: [main]
     paths:
       - .github/workflows/windows-release.yml
       - scripts/release_windows_github.py
@@ -11,7 +13,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: release-windows-1.1
+  group: release-windows-1.2
   cancel-in-progress: true
 jobs:
   release:
@@ -28,7 +30,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.13.17'
-      - name: Build, test, verify and publish Windows 1.1
+      - name: Build, test, verify and publish Windows 1.2
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
