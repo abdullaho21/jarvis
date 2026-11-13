@@ -559,6 +559,51 @@ class SettingsWindowTests(WindowsPolicyTestCase):
             self.assertEqual(len(window.inputs), config.MAX_INPUTS)
             self.assertFalse(refused.value)
 
+    def test_the_recording_tab_ticks_outputs_and_microphones_shared_with_replay(self):
+        window = self.window
+        devices = [{"id": "input:Headset", "monitor": False}, {"id": "loopback:Speakers [Loopback]", "monitor": True},
+                   {"id": "loopback:Headphones [Loopback]", "monitor": True}]
+        with patch.object(window, "changed"), patch.object(window, "say"):
+            window.load_recording_devices({"devices": devices})
+            self.assertEqual((len(window.output_holders), len(window.input_holders)), (2, 2))   # Recording and Replay tabs
+            recording_tab, replay_tab = window.output_holders
+            self.assertIs(window.output_rows, replay_tab)
+            window.tick_output("loopback:Headphones [Loopback]", types.SimpleNamespace(get=lambda: True))
+            window.root.update_idletasks()
+            for holder in (recording_tab, replay_tab):
+                ticked = [c.cget("text") for c in holder.winfo_children() if c.instate(["selected"])]
+                self.assertEqual(ticked, ["Headphones"])
+            self.assertEqual(window.settings()["replay"]["outputs"], ["loopback:Headphones [Loopback]"])
+
+    def test_the_clips_page_lists_new_clips_each_time_and_opens_the_newest_first(self):
+        panel = self.window.clips
+        self.assertEqual(panel.tabs.frames["edit"].winfo_manager(), "grid")   # Watch and edit is the first tab
+        with tempfile.TemporaryDirectory() as folder:
+            old, new = Path(folder) / "Replay_old.mkv", Path(folder) / "Game" / "Replay_new.mkv"
+            new.parent.mkdir()
+            for i, path in enumerate((old, new)):
+                path.write_bytes(b"x")
+                os.utime(path, (1_700_000_000 + i, 1_700_000_000 + i))
+            self.window.variable("recording", "output_dir").set(folder)
+            panel.work = lambda run, done: done((run(), None))   # at once, in this thread
+            opened = []
+            with patch.object(panel, "open", side_effect=opened.append):
+                panel.shown()
+                self.assertEqual(opened, [new])   # the newest, the first time only
+                self.assertEqual(panel.files, [new, old])
+                self.assertEqual(list(panel.recent_choice.cget("values"))[0].split(" · ")[:2], ["Replay_new.mkv", "Game"])
+                newer = Path(folder) / "Replay_newer.mkv"
+                newer.write_bytes(b"x")
+                os.utime(newer, (1_700_000_100, 1_700_000_100))
+                panel.shown()
+                self.assertEqual(panel.files[0], newer)   # listed without pressing Refresh
+                self.assertEqual(opened, [new])
+                panel.recent.set(panel.recent_choice.cget("values")[1])
+                panel.open_recent()
+                self.assertEqual(opened, [new, new])
+                panel.tabs.show("library")   # showing the library lists them again too
+                self.assertEqual(len(panel.library.get_children()), 3)
+
     def test_clips_open_in_the_player_and_its_place_marks_the_section(self):
         from jarvis.clipedit import Source
         panel = self.window.clips
@@ -1888,7 +1933,40 @@ class AudioTests(unittest.TestCase):
         stream.pending = bytearray()
         stream.error = None
         stream.queue = queue.Queue()
+        stream.started, stream.produced, stream.dropped = time.monotonic(), 0.0, 0.0
         return stream
+
+    @unittest.skipUnless(importlib.util.find_spec("audioop"), "Windows audio conversion dependency is optional on Linux")
+    def test_a_source_running_ahead_of_real_time_loses_a_packet_instead_of_the_whole_track(self):
+        # A device clock 1% fast: 101 packets of 10 ms arrive within one real second.
+        stream = self.stream(2, 2)
+        stream.started = 100.0
+        packet = bytes(480 * 4)   # 10 ms at 48 kHz stereo
+        for n in range(101):
+            stream.queue.put((100.0 + n * 0.0099, packet))
+        stream.queue.put((101.15, packet))   # 1.15 s in, 1.01 s of sound so far: within the slack
+        with patch("jarvis.windows.audio.time.monotonic", return_value=101.3):
+            got = b"".join(stream.read(480) for _ in range(102))
+        self.assertEqual(len(got), 102 * 480 * 4)
+        self.assertEqual(stream.dropped, 0)
+        # Far ahead (a packet stamped at 1.3 s when 1.5 s of sound already went out): left out.
+        stream.produced = 1.5 * 48000
+        stream.queue.put((101.3, packet))
+        stream.queue.put((101.6, b"\x01\x00" * 960))
+        with patch("jarvis.windows.audio.time.monotonic", return_value=101.6):
+            self.assertEqual(stream.read(480), b"\x01\x00" * 960)
+        self.assertEqual(stream.dropped, 480)
+
+    @unittest.skipUnless(importlib.util.find_spec("audioop"), "Windows audio conversion dependency is optional on Linux")
+    def test_a_source_falling_behind_real_time_is_padded_with_silence(self):
+        stream = self.stream(2, 2)
+        stream.started = 100.0
+        stream.queue.put((101.0, b"\x01\x00" * 960))   # one second in, nothing yet: 0.9 s of silence first
+        with patch("jarvis.windows.audio.time.monotonic", return_value=101.0):
+            first = stream.read(480)
+        self.assertEqual(first, bytes(480 * 4))
+        self.assertEqual(round(stream.produced), round(0.9 * 48000) + 480)
+        self.assertTrue(stream.pending.endswith(b"\x01\x00" * 960))
 
     @unittest.skipUnless(
         importlib.util.find_spec("audioop"),
@@ -1943,6 +2021,28 @@ class AudioTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "ambiguous"):
             select_device(Engine(), types.SimpleNamespace(paWASAPI=1), "input:Mic")
+
+    def test_a_window_replaces_a_service_from_another_install_but_never_two_run(self):
+        from jarvis.windows import startup
+        with patch.object(startup, "app_dir", return_value=Path("C:/Jarvis 1.2")), patch.object(sys, "frozen", True, create=True):
+            self.assertTrue(startup.other_install({"ok": True}))   # 1.1 does not say where it runs from
+            self.assertTrue(startup.other_install({"ok": True, "app": "C:/Programs/Jarvis"}))
+            self.assertFalse(startup.other_install({"ok": True, "app": "c:\\jarvis 1.2"}))
+            calls = []
+            with (
+                patch("jarvis.client.request", return_value={"ok": True}),
+                patch.object(startup, "stop_service", side_effect=lambda: calls.append("stop")),
+                patch.object(startup.subprocess, "Popen", side_effect=lambda *a, **k: calls.append("start")),
+                patch.object(startup, "data_dir", return_value=Path(tempfile.mkdtemp())),
+                patch.object(startup, "command", return_value=["JarvisConsole.exe", "daemon"]),
+            ):
+                startup.start_service()
+                self.assertEqual(calls, ["stop", "start"])
+                calls.clear()
+                with patch.object(startup, "stop_service", side_effect=RuntimeError("still finishing capture")):
+                    startup.start_service()
+                self.assertEqual(calls, [])   # it could not stop: no second service
+        self.assertFalse(startup.other_install({"ok": True}))   # from source: never replaces
 
     @unittest.skipUnless(TK, "Tk is not installed")
     def test_the_clip_player_fits_the_picture_and_decodes_on_the_graphics_card(self):
@@ -2013,7 +2113,7 @@ class AudioTests(unittest.TestCase):
     def test_quiet_loopback_adds_timed_silence_but_microphone_never_does(self):
         stream = self.stream(2, 2)
         stream.silence_on_idle = True
-        stream.last_samples = 10
+        stream.last_samples = stream.started = 10
         with (
             patch("jarvis.windows.audio._audioop", return_value=object()),
             patch("jarvis.windows.audio.time.monotonic", return_value=10.2),

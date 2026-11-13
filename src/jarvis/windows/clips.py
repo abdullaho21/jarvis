@@ -30,8 +30,24 @@ class ClipsPanel:
         self.touched = set()
         self.files = []
         self.scanning = False
-        self.tabs = window.tabs(page, [("library", "Library"), ("edit", "Watch and cut"), ("sound", "Sound")])
-        library = window.group(self.tabs["library"], "Clips", "Open a saved recording or replay. Already mixed sound cannot be separated.")
+        self.opened_once = False   # the newest clip opens by itself the first time the page is shown
+        self.exported = None
+        # Watching and editing come first: pick a clip right above the player.
+        self.tabs = window.tabs(page, [("edit", "Watch and edit"), ("library", "Library"), ("sound", "Sound")])
+        self.tabs.on_show = lambda key: self.refresh() if key == "library" else None
+
+        pick = window.group(self.tabs["edit"], "Clip", "Your recordings and replays, newest first. Pick one to watch "
+                            "and edit it, or open any video file.")
+        self.recent = tk.StringVar(value="")
+        self.recent_paths = {}
+        self.recent_choice = ttk.Combobox(pick, textvariable=self.recent, state="readonly", width=70, values=())
+        self.recent_choice.bind("<<ComboboxSelected>>", lambda _e: self.open_recent())
+        window.wide(pick, self.recent_choice)
+        window.buttons(pick, [("Open clip…", self.choose, "Primary.TButton"), ("Newest clip", self.open_newest),
+                              ("Refresh list", self.refresh), ("Open recordings folder", window.open_folder)])
+
+        library = window.group(self.tabs["library"], "Clips", "Your saved recordings and replays. Double-click one to "
+                               "watch and edit it. Already mixed sound cannot be separated.")
         window.buttons(library, [("Open clip…", self.choose), ("Refresh recordings", self.refresh),
                                  ("Open recordings folder", window.open_folder)])
         self.library = ttk.Treeview(library, columns=("clip", "game", "saved", "size"), show="headings", height=8,
@@ -43,7 +59,7 @@ class ClipsPanel:
         window.wide(library, self.library)   # the card's whole width
         self.library.bind("<Double-1>", self.open_selected)
         self.library.bind("<Return>", self.open_selected)
-        window.buttons(library, [("Open selected", self.open_selected)])
+        window.buttons(library, [("Watch and edit", self.open_selected, "Primary.TButton")])
 
         editor = window.group(self.tabs["sound"], "Sound tracks",
                               "Clips have their own tracks when Separate audio tracks is on (Capture › Recording audio). "
@@ -85,7 +101,8 @@ class ClipsPanel:
                    "in the clip's own format.")
         self.progress = tk.StringVar(value="")
         window.line(output, ttk.Label(output, textvariable=self.progress, style="Caption.TLabel", wraplength=520))
-        window.buttons(output, [("Export copy", self.export_copy, "Primary.TButton"), ("Cancel export", self.cancel)])
+        window.buttons(output, [("Export copy", self.export_copy, "Primary.TButton"), ("Cancel export", self.cancel),
+                                ("Watch the copy", self.watch_copy)])
 
     def work(self, run, done):
         # Probing and exports have their own worker; settings saves stay responsive.
@@ -97,12 +114,20 @@ class ClipsPanel:
             self.window.post((done, outcome, None))
         threading.Thread(target=worker, name="jarvis-clip-edit", daemon=True).start()
 
-    def refresh(self):
+    def shown(self):
+        """The Clips page opened: list the clips again (new ones appear), and the
+        first time, open the newest so the player has something to show."""
+        self.refresh(open_newest=not self.opened_once)
+        self.opened_once = True
+
+    def refresh(self, open_newest=False):
         if self.scanning:
             return
         self.scanning = True
         folder = Path(self.window.variable("recording", "output_dir").get()).expanduser()
         def scan():
+            if not folder.is_dir():
+                return []
             files = [(p, p.stat()) for p in folder.rglob("*") if p.is_file()
                      and p.suffix.lower() in (".mp4", ".mkv", ".webm", ".mov") and not p.name.startswith(".")]
             return sorted(files, key=lambda f: f[1].st_mtime, reverse=True)[:200]
@@ -114,12 +139,47 @@ class ClipsPanel:
                 return
             self.files = [path for path, _ in found]
             self.library.delete(*self.library.get_children())
+            self.recent_paths = {}
             for i, (path, stat) in enumerate(found):
-                self.library.insert("", "end", iid=str(i), values=clip_row(path, stat, folder))
+                row = clip_row(path, stat, folder)
+                self.library.insert("", "end", iid=str(i), values=row)
+                self.recent_paths[" · ".join(part for part in row if part)] = path
+            self.recent_choice.configure(values=list(self.recent_paths))
             if not found:
                 self.library.insert("", "end", iid="empty", values=(
                     "No clips yet. Say \"clip that\" during a game, or Open clip… for another folder.", "", "", ""))
+                self.recent.set("No clips in your recordings folder yet: use Open clip…")
+            else:
+                self.show_open_clip()
+            if open_newest and found and self.source is None and not self.loading:
+                self.open(found[0][0])
         self.work(scan, done)
+
+    def show_open_clip(self):
+        """The picker names the clip that is open (or asks for one)."""
+        if not self.source:
+            self.recent.set("Pick a clip to watch and edit…")
+            return
+        opened = Path(self.source.path)
+        shown = next((label for label, path in self.recent_paths.items() if Path(path).resolve() == opened), None)
+        self.recent.set(shown or opened.name)
+
+    def open_recent(self):
+        path = self.recent_paths.get(self.recent.get())
+        if path:
+            self.open(path)
+
+    def open_newest(self):
+        if self.files:
+            self.open(self.files[0])
+        else:
+            self.refresh(open_newest=True)
+
+    def watch_copy(self):
+        if self.exported and Path(self.exported).is_file():
+            self.open(self.exported)
+        else:
+            self.window.say("Export a copy first.")
 
     def open_selected(self, _event=None):
         selected = self.library.selection()
@@ -152,6 +212,7 @@ class ClipsPanel:
         self.generation += 1
         generation = self.generation
         self.name.set(f"{Path(source.path).name} · {source.duration:.1f} seconds")
+        self.show_open_clip()
         self.start.set("0")
         self.end.set(str(source.duration))
         self.edited()
@@ -234,8 +295,11 @@ class ClipsPanel:
         def done(outcome):
             self.export = None
             path, error = outcome
-            self.progress.set("Export stopped." if error else "Saved: " + str(path))
+            self.progress.set("Export stopped." if error else "Saved: " + str(path) + " · Watch the copy to see it.")
             self.window.say(error if error else "Saved a new copy: " + str(path), error=bool(error))
+            if not error:
+                self.exported = path
+                self.refresh()   # the copy appears in the list
         self.work(exporter.run, done)
 
     def preview(self):
