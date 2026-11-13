@@ -493,7 +493,7 @@ class SettingsWindowTests(WindowsPolicyTestCase):
             {"name": "Discord", "codec_name": "opus"}], [0])
         panel.loaded((source, None))
         panel.only(1)
-        pending[0][1](([-91, -91], None))
+        pending[-1][1](([-91, -91], None))   # the silence check (the player's first frame comes before it)
         self.assertEqual(panel.selection(), [1], "a late scan must keep the user's choice")
         panel.keep_all(False)
         self.assertEqual(panel.selection(), [])
@@ -518,6 +518,116 @@ class SettingsWindowTests(WindowsPolicyTestCase):
             v("replay", "game_track").set(False)
             window.separate_app.set("Discord")
             self.assertEqual(sound_tracks(window), 1)
+            # Two microphones and an output ticked: each its own track.
+            v("replay", "microphone").set(True)
+            window.inputs = ["input:A", "input:B"]
+            window.outputs = ["loopback:Chat"]
+            self.assertEqual(sound_tracks(window), 5)   # all sound, Discord, Chat, A, B
+            v("replay", "sources").set("all")
+            v("replay", "game_audio").set(True)
+            self.assertEqual(sound_tracks(window), 4)   # all sound, Chat, A, B
+
+    def test_recording_microphones_are_ticked_like_outputs_and_saved_as_a_list(self):
+        window = self.window
+        devices = [{"id": "input:Headset", "name": "Headset", "monitor": False},
+                   {"id": "input:Desk mic", "name": "Desk mic", "monitor": False},
+                   {"id": "loopback:Speakers [Loopback]", "name": "Speakers", "monitor": True}]
+        with patch.object(window, "changed"), patch.object(window, "say"):
+            window.load_recording_devices({"devices": devices})
+            self.assertEqual(window.input_found, ["input:Headset", "input:Desk mic"])
+            self.assertEqual(window.output_found, ["loopback:Speakers [Loopback]"])
+            titles = [c.cget("text") for c in window.input_rows.winfo_children()]
+            self.assertEqual(titles, ["Headset", "Desk mic"])
+            for device in ("input:Headset", "input:Desk mic"):
+                window.tick_input(device, types.SimpleNamespace(get=lambda: True))
+            self.assertEqual(window.inputs, ["input:Headset", "input:Desk mic"])
+            saved = window.settings()["replay"]
+            self.assertEqual((saved["inputs"], saved["mic_device"]), (["input:Headset", "input:Desk mic"], ""))
+            window.tick_input("input:Headset", types.SimpleNamespace(get=lambda: False))
+            self.assertEqual(window.settings()["replay"]["inputs"], ["input:Desk mic"])
+            # A ticked microphone that is unplugged stays listed, marked.
+            window.load_recording_devices({"devices": devices[1:]})
+            window.inputs = ["input:Headset"]
+            window.show_inputs()
+            self.assertEqual([c.cget("text") for c in window.input_rows.winfo_children()],
+                             ["Headset  · not connected", "Desk mic"])
+            # No more than MAX_INPUTS.
+            window.inputs = [f"input:{n}" for n in range(config.MAX_INPUTS)]
+            refused = types.SimpleNamespace(value=True, get=lambda: True)
+            refused.set = lambda value: setattr(refused, "value", value)
+            window.tick_input("input:extra", refused)
+            self.assertEqual(len(window.inputs), config.MAX_INPUTS)
+            self.assertFalse(refused.value)
+
+    def test_clips_open_in_the_player_and_its_place_marks_the_section(self):
+        from jarvis.clipedit import Source
+        panel = self.window.clips
+        stills = []
+        panel.work = lambda run, done: stills.append(done)   # no FFmpeg here
+        source = Source("clip.mkv", 12.346, {"width": 1920, "height": 1080, "r_frame_rate": "60/1"},
+                        [{"name": "All sound", "codec_name": "aac"}, {"name": "Microphone", "codec_name": "aac"}], [0.0])
+        panel.loaded((source, None))
+        player = panel.player
+        self.assertEqual((player.size, player.duration(), len(stills)), ((640, 360), 12.346, 2))   # first frame, sound check
+        self.assertEqual(panel.end.get(), "12.35")   # rounded up past the end, and still accepted
+        self.assertEqual(panel.marks(), (0.0, 12.346))
+        player.position = 3.456
+        with patch.object(self.window, "say"):
+            player.mark("start")
+            player.position = 7.5
+            player.mark("end")
+        self.assertEqual(panel.marks(), (3.46, 7.5))
+        panel.change("remove")
+        self.assertAlmostEqual(panel.edit.duration, 12.346 - 4.04, places=3)
+        self.assertEqual((player.duration(), player.position), (panel.edit.duration, 0.0))
+        # The sound heard while watching: "All sound" alone, else the tracks kept.
+        self.assertEqual(player.tracks(), [0])
+        panel.tracks[0][0].set(False)
+        self.assertEqual(player.tracks(), [1])
+
+    def test_the_player_plays_the_edited_timeline_section_by_section(self):
+        from jarvis.clipedit import Edit, Source
+        from jarvis.windows import player as module
+        started = []
+
+        class Playback:   # frames ready at once, no FFmpeg or sound device
+            def __init__(self, path, at, length, size, tracks, engine):
+                started.append((path, round(at, 3), round(length, 3)))
+                self.size, self.frames = size, queue.Queue()
+                self.started = threading.Event()
+                for _ in range(2):
+                    self.frames.put(bytes(size[0] * size[1] * 3))
+                self.frames.put(None)
+
+            def stop(self):
+                pass
+
+        player = self.window.clips.player
+        player.work = lambda run, done: None
+        edit = Edit.of(Source("a.mkv", 10.0, {"width": 64, "height": 36}, [], [0.0]))
+        edit.remove_range(2.0, 8.0)   # two sections: 0–2 and 8–10 of the source
+        player.load(edit)
+        self.assertEqual(player.size, (640, 360))
+        clock_now = [100.0]
+        with (
+            patch.object(module, "Playback", Playback),
+            patch.object(module, "_Engine", side_effect=OSError("no sound device")),
+            patch.object(module.time, "monotonic", side_effect=lambda: clock_now[0]),
+            patch.object(self.window.root, "after", lambda _ms, run: None),
+        ):
+            player.play()
+            self.assertEqual(player.play_button.cget("text"), "Pause")
+            generation = player.generation
+            player.tick(generation)   # the first frame: the clock starts
+            clock_now[0] += 2.0
+            player.tick(generation)   # the first section is over: the second begins where it was cut
+            self.assertEqual(started, [("a.mkv", 0.0, 2.0), ("a.mkv", 8.0, 2.0)])
+            self.assertAlmostEqual(player.position, 2.0)
+            player.tick(generation)
+            clock_now[0] += 2.0
+            player.tick(generation)   # the end: paused there
+        self.assertIsNone(player.playing)
+        self.assertEqual((player.position, player.play_button.cget("text")), (4.0, "Play"))
 
     def test_clips_leaving_a_sound_out_drops_all_sound_and_mixes_the_rest(self):
         from jarvis.clipedit import Source
@@ -841,7 +951,9 @@ class EncoderTests(WindowsPolicyTestCase):
             encoding.audio_plan(dict(self.cfg, system_audio=True), replay, build=0)
         for bad in ({"sources": "some"}, {"volumes": {"game": 120}}, {"volumes": {"game": True}}, {"game_track": 1},
                     {"outputs": ["Speakers"]}, {"outputs": [f"loopback:{n}" for n in range(7)]},
-                    {"outputs": ["loopback:A", "loopback:A"]}, {"mic_device": "loopback:A"}):
+                    {"outputs": ["loopback:A", "loopback:A"]}, {"mic_device": "loopback:A"},
+                    {"inputs": ["loopback:A"]}, {"inputs": [f"input:{n}" for n in range(5)]},
+                    {"inputs": ["input:A", "input:A"]}, {"inputs": "input:A"}):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 config.validate({"replay": bad})
 
@@ -857,11 +969,56 @@ class EncoderTests(WindowsPolicyTestCase):
         (title, mixed), = encoding.audio_plan(dict(self.cfg, system_audio=True, microphone=True),
                                               dict(replay, audio_tracks="mixed"), build=26300)
         self.assertIsNone(title)
-        self.assertEqual((mixed["outputs"], mixed["mic_device"]), (outputs, "input:USB Podcast Microphone"))
-        # None chosen: the default output, as before.
+        self.assertEqual((mixed["outputs"], mixed["inputs"]), (outputs, ["input:USB Podcast Microphone"]))
+        # None chosen: the default output and microphone, as before.
         default = encoding.audio_plan(dict(self.cfg, system_audio=True, microphone=True),
-                                      dict(replay, outputs=[]), build=26300)
+                                      dict(replay, outputs=[], inputs=[]), build=26300)
         self.assertEqual([t for t, _ in default], ["Game and desktop sound", "Microphone"])
+        self.assertEqual(default[1][1]["track"]["device"], "")
+
+    def test_several_microphones_each_get_a_named_track_or_share_the_mixed_one(self):
+        mics = ["input:Headset Microphone (Wireless)", "input:Microphone (USB Podcast Microphone)"]
+        replay = config.validate({"replay": {"sources": "all", "audio_tracks": "separate", "inputs": mics,
+                                             "volumes": {"microphone": 60}}})["replay"]
+        plan = encoding.audio_plan(dict(self.cfg, system_audio=True, microphone=True), replay, build=26300)
+        self.assertEqual([t for t, _ in plan],
+                         ["Game and desktop sound", "Headset Microphone (Wireless)", "Microphone (USB Podcast Microphone)"])
+        self.assertEqual([c["track"] for _, c in plan[1:]],
+                         [{"kind": "microphone", "device": m, "volume": 0.6} for m in mics])
+        (_, mixed), = encoding.audio_plan(dict(self.cfg, system_audio=True, microphone=True),
+                                          dict(replay, audio_tracks="mixed"), build=26300)
+        self.assertEqual(mixed["inputs"], mics)
+        # Specific apps keep them too, after the programs.
+        specific = dict(replay, sources="specific", separate_apps=["Discord"])
+        titles = [t for t, _ in encoding.audio_plan(dict(self.cfg, system_audio=True, microphone=True), specific, build=26300)]
+        self.assertEqual(titles, ["Game audio", "Discord", "Headset Microphone (Wireless)",
+                                  "Microphone (USB Podcast Microphone)"])
+        # The microphone switch off: none of them.
+        quiet = encoding.audio_plan(dict(self.cfg, system_audio=True, microphone=False), dict(replay, microphone=False),
+                                    build=26300)
+        self.assertEqual([t for t, _ in quiet], ["Game and desktop sound"])
+
+    def test_specific_apps_also_record_the_outputs_ticked(self):
+        outputs = ["loopback:Headphones (Wireless Chat) [Loopback]"]
+        replay = config.validate({"replay": {"sources": "specific", "separate_apps": ["Spotify"],
+                                             "outputs": outputs}})["replay"]
+        plan = encoding.audio_plan(dict(self.cfg, system_audio=True, microphone=True), replay, build=26300)
+        self.assertEqual([t for t, _ in plan], ["Game audio", "Spotify", "Headphones (Wireless Chat)", "Microphone"])
+        self.assertEqual(plan[2][1]["track"], {"kind": "output", "device": outputs[0], "volume": 1.0})
+        # A recording without system sound records none of them.
+        voice = encoding.audio_plan(dict(self.cfg, system_audio=False, microphone=True), replay, build=26300, recording=True)
+        self.assertEqual([t for t, _ in voice], ["Microphone"])
+
+    def test_the_single_microphone_of_earlier_versions_moves_into_the_list(self):
+        loaded = config.validate({"replay": {"mic_device": "input:USB Podcast Microphone"}})["replay"]
+        self.assertEqual((loaded["inputs"], loaded["mic_device"]), (["input:USB Podcast Microphone"], ""))
+        both = config.validate({"replay": {"mic_device": "input:A", "inputs": ["input:B"]}})["replay"]
+        self.assertEqual(both["inputs"], ["input:A", "input:B"])
+        same = config.validate({"replay": {"mic_device": "input:B", "inputs": ["input:B"]}})["replay"]
+        self.assertEqual(same["inputs"], ["input:B"])
+        self.assertEqual(config.validate({"replay": loaded})["replay"]["inputs"], ["input:USB Podcast Microphone"])   # stable
+        # A settings dictionary that was never validated still names its microphone.
+        self.assertEqual(encoding.chosen_microphones({"mic_device": "input:Old"}), ["input:Old"])
 
     def test_screenshots_are_a_voice_command_in_english_and_arabic(self):
         from jarvis.commands import Parser
@@ -982,7 +1139,8 @@ class EncoderTests(WindowsPolicyTestCase):
         self.assertEqual((loaded["activation"]["sensitivity"], loaded["recording"]["fps"], loaded["recording"]["resolution"],
                           loaded["replay"]["seconds"], loaded["replay"]["sources"], loaded["replay"]["separate_apps"],
                           loaded["replay"]["volumes"]), (0.3, 60, "native", 90, "all", [], {"game": 40}))
-        self.assertEqual((loaded["replay"]["mic_device"], loaded["replay"]["outputs"]), ("", []))   # the new ones, added
+        self.assertEqual((loaded["replay"]["mic_device"], loaded["replay"]["inputs"], loaded["replay"]["outputs"]),
+                         ("", [], []))   # the new ones, added
 
     def test_program_tracks_never_go_through_the_python_relay(self):
         # They run on the native worker straight into FFmpeg (start_app_audio).
@@ -1785,6 +1943,72 @@ class AudioTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "ambiguous"):
             select_device(Engine(), types.SimpleNamespace(paWASAPI=1), "input:Mic")
+
+    @unittest.skipUnless(TK, "Tk is not installed")
+    def test_the_clip_player_fits_the_picture_and_decodes_on_the_graphics_card(self):
+        from jarvis.windows import player
+        self.assertEqual(player.preview_size({"width": 1920, "height": 1080}), (640, 360))
+        self.assertEqual(player.preview_size({"width": 1080, "height": 1920}), (202, 360))
+        self.assertEqual(player.preview_size({"width": 3440, "height": 1440}), (640, 268))
+        self.assertEqual(player.preview_size({}), (640, 360))
+        video = player.video_command("D:/clip.mkv", 3.5, 2.25, (640, 360))
+        self.assertEqual(video[video.index("-hwaccel") + 1], "d3d11va")   # this FFmpeg can't decode AV1 itself
+        self.assertLess(video.index("-ss"), video.index("-i"))
+        self.assertEqual((video[video.index("-ss") + 1], video[video.index("-t") + 1]), ("3.500", "2.250"))
+        self.assertIn("scale=640:360", video[video.index("-vf") + 1])
+        self.assertEqual(video[-3:], ["-pix_fmt", "rgb24", "pipe:1"])
+        self.assertIsNone(player.audio_command("D:/clip.mkv", 0, 1, []))
+        one = player.audio_command("D:/clip.mkv", 0, 1, [2])
+        self.assertEqual(one[one.index("-map") + 1], "0:a:2")
+        both = player.audio_command("D:/clip.mkv", 0, 1, [1, 2])
+        self.assertIn("[0:a:1][0:a:2]amix=inputs=2:normalize=0[a]", both)
+        audio = [{"name": "All sound"}, {"name": "Game audio"}, {"name": "Microphone"}]
+        self.assertEqual(player.preview_tracks(audio, [0, 1, 2]), [0])
+        self.assertEqual(player.preview_tracks(audio, [1, 2]), [1, 2])
+        self.assertEqual(player.preview_tracks([{"name": "Audio 1"}, {"name": "Audio 2"}], [0, 1, 5]), [0, 1])
+        self.assertEqual(player.ppm((2, 1), b"abcdef"), b"P6 2 1 255\nabcdef")
+        self.assertEqual(player.clock(75.5), "1:15.50")
+
+    def test_one_mixed_track_opens_every_chosen_output_and_microphone(self):
+        from jarvis.windows import audio
+        opened = []
+
+        class Stream:
+            def __init__(self, _engine, _pa, device, silence_on_idle=False):
+                opened.append((device, silence_on_idle))
+
+            def close(self):
+                pass
+
+        class Engine:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+        pa = types.SimpleNamespace(PyAudio=Engine)
+        config_ = {"system_audio": True, "microphone": True, "outputs": ["loopback:Game", "loopback:Chat"],
+                   "inputs": ["input:Headset", "input:Desk mic"]}
+        with (
+            patch.object(audio, "_library", return_value=pa),
+            patch.object(audio, "_audioop", return_value=object()),
+            patch.object(audio, "PCMStream", Stream),
+            patch.object(audio, "select_device", side_effect=lambda _e, _p, name, loopback=False: name),
+            patch("jarvis.windows.pipes.PipeWriter", return_value=types.SimpleNamespace(close=lambda: None)),
+            patch.object(audio, "wait_for_reader", side_effect=RuntimeError("stop here")),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "stop here"):
+                audio.mix_to_pipe(config_, r"\\.\pipe\Jarvis-x")
+            self.assertEqual(opened, [("loopback:Game", True), ("loopback:Chat", True),
+                                      ("input:Headset", False), ("input:Desk mic", False)])
+            opened.clear()
+            # Nothing chosen: Windows' defaults; a 1.1 single microphone still works.
+            with self.assertRaisesRegex(RuntimeError, "stop here"):
+                audio.mix_to_pipe({"system_audio": True, "microphone": True}, r"\\.\pipe\Jarvis-x")
+            with self.assertRaisesRegex(RuntimeError, "stop here"):
+                audio.mix_to_pipe({"microphone": True, "mic_device": "input:Old"}, r"\\.\pipe\Jarvis-x")
+            self.assertEqual(opened, [("default_output", True), ("default_input", False), ("input:Old", False)])
 
     def test_quiet_loopback_adds_timed_silence_but_microphone_never_does(self):
         stream = self.stream(2, 2)

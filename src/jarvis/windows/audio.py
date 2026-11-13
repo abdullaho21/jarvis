@@ -274,14 +274,17 @@ def mix_to_pipe(config, pipe):
                                              silence_on_idle=True))
                     gains.append(volumes.get("desktop", 1.0))
             if config.get("microphone"):
-                name = config.get("mic_device") or (device if device.startswith("input:") else "default_input")
-                streams.append(PCMStream(engine, pa, select_device(engine, pa, name)))
-                gains.append(volumes.get("microphone", 1.0))
+                # The chosen microphones, or the default one (or a legacy single choice).
+                inputs = list(config.get("inputs") or []) or [
+                    config.get("mic_device") or (device if device.startswith("input:") else "default_input")]
+                for name in inputs:
+                    streams.append(PCMStream(engine, pa, select_device(engine, pa, name)))
+                    gains.append(volumes.get("microphone", 1.0))
             if not streams:
                 raise RuntimeError("No recording audio source selected")
             # Each source at its volume, at half when sharing the track (as two always
-            # were): more outputs don't make each quieter. Rare peaks together are
-            # limited by the saturating add, never wrapped around.
+            # were): more outputs or microphones don't make each quieter. Rare peaks
+            # together are limited by the saturating add, never wrapped around.
             gains = [g * 0.5 if len(streams) > 1 else g for g in gains]
             wait_for_reader(output, streams)
             while True:

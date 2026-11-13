@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.2.0 — Unreleased
+
+- Windows: recordings and replay can record up to four microphones at once
+  (Capture › Instant replay › Recording audio › Microphones), each on its own
+  track, like the sound outputs. None ticked records the Windows default
+  microphone. A microphone chosen in 1.1 is kept as the first one ticked.
+- Windows: ticked sound outputs are now also recorded with Specific apps (each
+  whole, on its own track), not only with All audio. The Recording tab now says
+  which outputs and microphones it records instead of "the Windows default".
+- Windows: clips play inside Jarvis (Clips › Watch and cut), with sound, a
+  timeline, ±5 s and frame steps, and Mark start / Mark end to set the section
+  to keep or remove. It plays the edited clip, skipping removed sections. Windows'
+  own player often can't open the AV1 clips Jarvis records, so there was no way
+  to see where to cut; Open in Windows player remains.
+
 ## 1.1.0 — 2026-11-13
 
 Windows update from PR #19: screenshots, up to six recording sound outputs,

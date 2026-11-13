@@ -30,12 +30,13 @@ def sound_tracks(window):
     """How many sound tracks a replay keeps with the settings on screen (see
     encoding.audio_plan): the sources, plus "All sound" when they are separate."""
     v = window.variable
+    chosen = len(getattr(window, "outputs", None) or [])
+    microphones = (len(getattr(window, "inputs", None) or []) or 1) * bool(v("replay", "microphone").get())
     if v("replay", "sources").get() == "specific":
         programs = [n for n in getattr(window, "separate_app", tk.StringVar()).get().split(",") if n.strip()]
-        sources = bool(v("replay", "game_track").get()) + len(programs) + bool(v("replay", "microphone").get())
-    else:
-        outputs = len(getattr(window, "outputs", None) or []) or 1   # chosen outputs, or the default one
-        sources = outputs * bool(v("replay", "game_audio").get()) + bool(v("replay", "microphone").get())
+        sources = bool(v("replay", "game_track").get()) + len(programs) + chosen + microphones
+    else:   # chosen outputs, or the default one
+        sources = (chosen or 1) * bool(v("replay", "game_audio").get()) + microphones
     if sources > 1:
         return sources + 1 if v("replay", "audio_tracks").get() == "separate" else 1
     return sources
