@@ -93,10 +93,12 @@ def other_install(status):
     Only the packaged app replaces services; running from source never does."""
     if not getattr(sys, "frozen", False) or not status.get("ok"):
         return False
+    import ntpath   # Windows paths, compared the Windows way wherever this runs
+
     running = status.get("app")
     if not running:
         return True   # 1.1 and earlier don't say: they are not this app
-    return os.path.normcase(os.path.normpath(running)) != os.path.normcase(os.path.normpath(str(app_dir())))
+    return ntpath.normcase(ntpath.normpath(running)) != ntpath.normcase(ntpath.normpath(str(app_dir())))
 
 
 def start_service():
