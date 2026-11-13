@@ -1,4 +1,4 @@
-"""Build, verify and publish Jarvis 1.1 on a Windows GitHub Actions runner."""
+"""Build, verify and publish Jarvis on a Windows GitHub Actions runner."""
 import hashlib
 import json
 import os
@@ -11,7 +11,9 @@ import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-WORK = ROOT / 'build/release-1.1'
+VERSION = '1.2.0'          # must match src/jarvis/__init__.py
+TAG, TITLE = 'v1.2', 'Jarvis 1.2'
+WORK = ROOT / f'build/release-{VERSION}'
 WORK.mkdir(parents=True, exist_ok=True)
 OUTPUT = ROOT / 'dist/windows'
 
@@ -80,40 +82,40 @@ run(sys.executable, 'scripts/build_windows.py', '--models', base / 'models', '--
     '--text-helper', base / 'tools/jarvis-type.exe', '--vosk-dir', base / 'tools', '--output', OUTPUT)
 bundle = OUTPUT / 'frozen/Jarvis'
 console = bundle / 'JarvisConsole.exe'
-assert subprocess.check_output([str(console), '--version'], text=True).strip() == 'Jarvis 1.1.0'
+assert subprocess.check_output([str(console), '--version'], text=True).strip() == f'Jarvis {VERSION}'
 doctor = json.loads(subprocess.check_output([str(console), 'doctor'], text=True))
 assert doctor['frozen'] and doctor['voice_engine']['model_ready'] and doctor['voice_engine']['accurate_model_ready']
 assert all(x['ok'] for x in doctor['tools'].values()) and all(doctor['dependencies'].values())
-setup = OUTPUT / 'Jarvis-1.1.0-Windows-x64-Setup.exe'
-run(WORK / 'nsis-3.11/makensis.exe', '/V2', f'/DBUNDLE={bundle}', '/DVERSION=1.1.0',
+setup = OUTPUT / f'Jarvis-{VERSION}-Windows-x64-Setup.exe'
+run(WORK / 'nsis-3.11/makensis.exe', '/V2', f'/DBUNDLE={bundle}', f'/DVERSION={VERSION}',
     f'/DOUTPUT={setup}', ROOT / 'packaging/windows/installer.nsi')
 extracted = WORK / 'extracted'
 run('7z', 'x', setup, f'-o{extracted}', '-y')
 manifest = json.loads((extracted / 'BUILD-MANIFEST.json').read_text())
-assert manifest['version'] == '1.1.0'
+assert manifest['version'] == VERSION
 for name, expected in manifest['files'].items():
     assert sha(extracted / name) == expected, name
 assert sha(extracted / 'tools/jarvis-voice.exe') == sha(worker)
 assert (extracted / 'Uninstall.exe').is_file()
 setup.with_suffix('.exe.sha256').write_text(sha(setup) + '  ' + setup.name + '\n')
-assets = sorted(OUTPUT.glob('Jarvis-1.1.0-Windows-x64-*'))
+assets = sorted(OUTPUT.glob(f'Jarvis-{VERSION}-Windows-x64-*'))
 assert len(assets) == 4, assets
 (OUTPUT / 'SHA256SUMS').write_text(''.join(sha(p) + '  ' + p.name + '\n' for p in assets if p.suffix != '.sha256'))
 assets.append(OUTPUT / 'SHA256SUMS')
 notes = WORK / 'release-notes.md'
-notes.write_text('''Windows update from PR #19, with original contributor commits preserved.
+notes.write_text('''Windows update: choose your recording devices, steady system sound, and a clip player inside Jarvis.
 
-- Screenshots by voice, tray and settings, with PNG/JPG options.
-- Up to six recording sound outputs and a separate recording microphone.
-- Display selection survives Windows display renumbering.
-- Faster wake-word handling, corrected clip joins and a new app icon.
-- Fresh-install defaults enable wake listening, instant replay and starting with Windows; existing settings are retained.
+- Capture › Recording: tick the sound outputs (up to six) and microphones (up to four) to record, right under System sound and Microphone, each on its own track, instead of the Windows default ones. The same lists are under Instant replay. Ticked outputs are also recorded with Specific apps; on Windows 10, where Specific apps falls back to All audio, they replace the default output.
+- System sound no longer stops with "Audio capture could not keep up" during long replays: each sound source is held within 0.2 s of real time.
+- Clips opens on Watch and edit: the newest clip is loaded in a player with sound, a list of all clips refreshes each time the page opens, Open clip… opens any video, and ±5 s / frame steps with Mark start / Mark end set the section to keep or remove. Windows' own player often can't open the AV1 clips Jarvis records.
+- Opening Jarvis replaces a running service from another Jarvis folder (such as the previous version), so an update never keeps recording with the old code.
+- A recording microphone chosen in 1.1 is kept; all other settings are retained.
 
 Download the Windows x64 Setup.exe, or extract the entire portable ZIP. Both include offline English models, recording tools, runtime dependencies, license notices and FFmpeg corresponding source.
 
-Validation: Windows policy/packaging tests and native worker tests pass; frozen offline dependency/model checks pass; every installer payload hash matches its build manifest after extraction. The Windows speech/capture worker is rebuilt from this release source. Unchanged replay and dictation helpers are from the verified official 1.0.0 release.
+Validation: Windows policy/packaging tests and native worker tests pass; frozen offline dependency/model checks pass; every installer payload hash matches its build manifest after extraction. The Windows speech/capture worker is rebuilt from this release source. Unchanged replay and dictation helpers are from the verified official 1.0.0 release. Before release, a portable build of these changes was run on Windows 10 with two USB microphones and a USB DAC: simultaneous capture of every chosen device, clip playback with sound and section cuts, and replacement of the running 1.1 service.
 
-The installer is unsigned. Physical microphone, GPU/HDR, installation/upgrade/uninstallation and Windows 11 per-app audio were not tested by this release build.
+The installer is unsigned. Multi-hour replay, other GPUs/HDR, installation/upgrade/uninstallation and Windows 11 per-app audio were not tested by this release build.
 ''', encoding='utf-8')
 # Require the complete repository checks before making the release public.
 deadline = time.monotonic() + 30 * 60
@@ -129,6 +131,6 @@ while True:
     print('Waiting for required repository checks before publication', flush=True)
     time.sleep(20)
 # Create as a draft, attach every verified asset, then publish atomically to users.
-run('gh', 'release', 'create', 'v1.1', '--repo', os.environ['GITHUB_REPOSITORY'], '--target',
-    os.environ['GITHUB_SHA'], '--title', 'Jarvis 1.1', '--notes-file', notes, '--draft', *assets)
-run('gh', 'release', 'edit', 'v1.1', '--repo', os.environ['GITHUB_REPOSITORY'], '--draft=false', '--latest')
+run('gh', 'release', 'create', TAG, '--repo', os.environ['GITHUB_REPOSITORY'], '--target',
+    os.environ['GITHUB_SHA'], '--title', TITLE, '--notes-file', notes, '--draft', *assets)
+run('gh', 'release', 'edit', TAG, '--repo', os.environ['GITHUB_REPOSITORY'], '--draft=false', '--latest')
