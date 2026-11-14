@@ -1,6 +1,6 @@
-Jarvis 1.2.0 — Windows x64
+Jarvis 1.3.0 — Windows x64
 
-Windows 10 22H2 and Windows 11 x64. Run Jarvis-1.2.0-Windows-x64-Setup.exe:
+Windows 10 22H2 and Windows 11 x64. Run Jarvis-1.3.0-Windows-x64-Setup.exe:
 it installs for your account only, needs no administrator rights, downloads
 nothing and does not restart Windows. Setup upgrades an earlier Jarvis in
 place and keeps settings and recordings. Optional: desktop shortcut (on by
@@ -51,6 +51,11 @@ Console examples:
 No Discord moderation is included. The same Windows app can still be opened
 by name like other installed applications.
 
+New in 1.3.0: an animated listening sign shows when Jarvis hears the wake word,
+works on a command and finishes. Voice > Wake word changes its corner or turns
+it off. The app has a matching teal icon. Game audio excludes Epic launchers
+and overlays and follows the game that is playing.
+
 New in 1.2.0: tick the sound outputs (up to six) and microphones (up to four)
 to record right under System sound and Microphone on Capture > Recording, each
 on its own track, instead of the Windows default ones. System sound stays in
@@ -68,7 +73,7 @@ tracks keeps them individually alongside a combined track. Specific-app
 capture requires Windows 11 (build 20348 or later).
 Arabic recognition uses an optional model download; English models are bundled.
 
-Validation details for this build are on the v1.2 GitHub release page.
+Validation details for this build are on the v1.3 GitHub release page.
 The contributor tested the Windows changes on Windows 11 with an RTX 5080.
 Automated and Wine checks do not establish behavior on every GPU, display
 or microphone. This build is unsigned; Windows may show a SmartScreen warning.
