@@ -11,8 +11,8 @@ import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '1.2.0'          # must match src/jarvis/__init__.py
-TAG, TITLE = 'v1.2', 'Jarvis 1.2'
+VERSION = '1.3.0'          # must match src/jarvis/__init__.py
+TAG, TITLE = 'v1.3', 'Jarvis 1.3'
 WORK = ROOT / f'build/release-{VERSION}'
 WORK.mkdir(parents=True, exist_ok=True)
 OUTPUT = ROOT / 'dist/windows'
@@ -32,7 +32,7 @@ def download(url, path, expected=None):
 
 run(sys.executable, '-m', 'pip', 'install', '--require-hashes', '-r', 'packaging/windows/requirements-lock.txt')
 run(sys.executable, '-m', 'pip', 'install', '--no-deps', '--no-build-isolation', '-e', '.')
-run(sys.executable, '-m', 'unittest', 'tests.test_windows', 'tests.test_process_memory',
+run(sys.executable, '-m', 'unittest', 'tests.test_windows', 'tests.test_listening_sign', 'tests.test_process_memory',
     'tests.test_voice_upgrade.FakeVoskEngineTests', 'tests.test_build_scripts', '-v')
 archive = WORK / 'base.zip'
 download('https://github.com/abdullaho21/jarvis/releases/download/v1.0.0/Jarvis-1.0.0-Windows-x64-Portable.zip',
@@ -103,19 +103,20 @@ assert len(assets) == 4, assets
 (OUTPUT / 'SHA256SUMS').write_text(''.join(sha(p) + '  ' + p.name + '\n' for p in assets if p.suffix != '.sha256'))
 assets.append(OUTPUT / 'SHA256SUMS')
 notes = WORK / 'release-notes.md'
-notes.write_text('''Windows update: choose your recording devices, steady system sound, and a clip player inside Jarvis.
+notes.write_text('''Windows update: a listening indicator, a matching new icon, and improved game audio capture.
 
-- Capture › Recording: tick the sound outputs (up to six) and microphones (up to four) to record, right under System sound and Microphone, each on its own track, instead of the Windows default ones. The same lists are under Instant replay. Ticked outputs are also recorded with Specific apps; on Windows 10, where Specific apps falls back to All audio, they replace the default output.
-- System sound no longer stops with "Audio capture could not keep up" during long replays: each sound source is held within 0.2 s of real time.
-- Clips opens on Watch and edit: the newest clip is loaded in a player with sound, a list of all clips refreshes each time the page opens, Open clip… opens any video, and ±5 s / frame steps with Mark start / Mark end set the section to keep or remove. Windows' own player often can't open the AV1 clips Jarvis records.
-- Opening Jarvis replaces a running service from another Jarvis folder (such as the previous version), so an update never keeps recording with the old code.
-- A recording microphone chosen in 1.1 is kept; all other settings are retained.
+- The animated Jarvis mark appears in a corner after the wake word, shows command progress and success/failure, then fades away. It follows the active screen, lets clicks through and is excluded from screen capture. Change its corner or turn it off under Voice > Wake word.
+- A matching teal dial icon is used throughout the Windows app, shortcuts and tray.
+- Game audio capture excludes Epic launchers and overlays, Wallpaper Engine, Steamworks Shared and SteamVR, and can switch to the game currently playing.
+- Includes the recording-device selection, steady system audio and built-in clip player from 1.2. Existing settings are retained.
 
 Download the Windows x64 Setup.exe, or extract the entire portable ZIP. Both include offline English models, recording tools, runtime dependencies, license notices and FFmpeg corresponding source.
 
-Validation: Windows policy/packaging tests and native worker tests pass; frozen offline dependency/model checks pass; every installer payload hash matches its build manifest after extraction. The Windows speech/capture worker is rebuilt from this release source. Unchanged replay and dictation helpers are from the verified official 1.0.0 release. Before release, a portable build of these changes was run on Windows 10 with two USB microphones and a USB DAC: simultaneous capture of every chosen device, clip playback with sound and section cuts, and replacement of the running 1.1 service.
+Validation: repository CI, Windows policy and listening-indicator tests, native worker tests, frozen offline dependency/model checks, and installer payload hash verification. The Windows speech/capture worker is rebuilt from this release source. Unchanged replay and dictation helpers come from the verified official 1.0.0 release. The PR contributor reports checking the indicator on a physical Windows PC, including Listen, Cancel and exclusion from screen captures; the final 1.3 installer was validated automatically.
 
-The installer is unsigned. Multi-hour replay, other GPUs/HDR, installation/upgrade/uninstallation and Windows 11 per-app audio were not tested by this release build.
+The installer is unsigned. Physical installation/upgrade/uninstallation, multi-hour replay and coverage across GPUs, HDR displays and Windows per-app audio configurations were not tested by this release build.
+
+Thanks to @IYY1 for PR #22.
 ''', encoding='utf-8')
 # Require the complete repository checks before making the release public.
 deadline = time.monotonic() + 30 * 60

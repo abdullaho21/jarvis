@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 — 2026-11-14
 
 - Windows: a listening sign. After the wake word the Jarvis mark turns and
   breathes in a corner of the screen until the command ends: green when it
@@ -14,7 +14,7 @@
 - Windows: the game track no longer follows Epic's launcher or overlay, so an
   Epic game's sound is recorded.
 
-## 1.2.0 — Unreleased
+## 1.2.0 — 2026-11-13
 
 - Windows: recordings and replay can record up to four microphones at once
   (Capture › Instant replay › Recording audio › Microphones), each on its own
