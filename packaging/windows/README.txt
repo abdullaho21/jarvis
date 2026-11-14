@@ -1,6 +1,6 @@
-Jarvis 1.1.0 — Windows x64
+Jarvis 1.2.0 — Windows x64
 
-Windows 10 22H2 and Windows 11 x64. Run Jarvis-1.1.0-Windows-x64-Setup.exe:
+Windows 10 22H2 and Windows 11 x64. Run Jarvis-1.2.0-Windows-x64-Setup.exe:
 it installs for your account only, needs no administrator rights, downloads
 nothing and does not restart Windows. Setup upgrades an earlier Jarvis in
 place and keeps settings and recordings. Optional: desktop shortcut (on by
@@ -51,6 +51,12 @@ Console examples:
 No Discord moderation is included. The same Windows app can still be opened
 by name like other installed applications.
 
+New in 1.2.0: tick the sound outputs (up to six) and microphones (up to four)
+to record right under System sound and Microphone on Capture > Recording, each
+on its own track, instead of the Windows default ones. System sound stays in
+step with the video during long replays. Clips play inside Jarvis (Clips >
+Watch and edit) with sound, frame steps and Mark start / Mark end for cutting.
+
 New in 1.1.0: automatic video format selection (AV1, HEVC, then H.264),
 quality presets up to 240 fps, corrected replay sync, improved HDR capture,
 faster GPU clip exports, fast-speech retries, six settings themes, and start
@@ -62,7 +68,7 @@ tracks keeps them individually alongside a combined track. Specific-app
 capture requires Windows 11 (build 20348 or later).
 Arabic recognition uses an optional model download; English models are bundled.
 
-Validation details for this build are on the v1.1.0 GitHub release page.
+Validation details for this build are on the v1.2 GitHub release page.
 The contributor tested the Windows changes on Windows 11 with an RTX 5080.
 Automated and Wine checks do not establish behavior on every GPU, display
 or microphone. This build is unsigned; Windows may show a SmartScreen warning.

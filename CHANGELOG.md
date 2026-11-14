@@ -14,6 +14,31 @@
 - Windows: the game track no longer follows Epic's launcher or overlay, so an
   Epic game's sound is recorded.
 
+## 1.2.0 — Unreleased
+
+- Windows: recordings and replay can record up to four microphones at once
+  (Capture › Instant replay › Recording audio › Microphones), each on its own
+  track, like the sound outputs. None ticked records the Windows default
+  microphone. A microphone chosen in 1.1 is kept as the first one ticked.
+- Windows: the sound outputs and microphones recorded are ticked right under
+  System sound and Microphone on Capture › Recording (and the same lists under
+  Instant replay). Ticked outputs are also recorded with Specific apps, each
+  whole on its own track, not only with All audio. On Windows 10, where Specific
+  apps falls back to All audio, they replace the Windows default output.
+- Windows: system sound no longer stops with "Audio capture could not keep up"
+  after hours of replay. Each sound source is held within 0.2 s of real time: a
+  device clock running fast loses a 20 ms packet now and then, and silence filled
+  in while nothing played is no longer counted twice when late sound arrives.
+- Windows: clips play inside Jarvis. Clips opens on Watch and edit, with the
+  newest clip already loaded and a list of all clips above the player (refreshed
+  each time the page opens), Open clip… for any file, sound, a timeline, ±5 s and
+  frame steps, and Mark start / Mark end for the section to keep or remove. It
+  plays the edited clip, skipping removed sections; Watch the copy plays an
+  export. Windows' own player often can't open the AV1 clips Jarvis records.
+- Windows: a window from one Jarvis folder now replaces a running service from
+  another (such as an older install) instead of talking to it, so a new version
+  never records with the old one's code.
+
 ## 1.1.0 — 2026-11-13
 
 Windows update from PR #19: screenshots, up to six recording sound outputs,

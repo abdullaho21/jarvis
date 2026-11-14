@@ -55,19 +55,20 @@ def audio_plan(cfg, replay=None, build=0, labels=None, recording=False):
         # Windows 10 can't record one program's sound: record all of it instead
         # (Specific apps is the default, and must not stop a capture there).
         specific = False
-    microphone = replay.get("mic_device", "")   # recordings' own microphone; "" is Windows' default
+    microphones = chosen_microphones(replay)   # recordings' own microphones; [] is Windows' default
     outputs = list(replay.get("outputs") or [])   # sound outputs to record; [] is the default output
     if not specific and replay.get("audio_tracks", "mixed") != "separate":
         if not (cfg.get("system_audio") or cfg.get("microphone")):
             return []
-        return [(None, dict(cfg, mic_device=microphone, outputs=outputs,
+        return [(None, dict(cfg, inputs=microphones, outputs=outputs,
                             volumes={"desktop": volume("desktop"), "microphone": volume("microphone")}))]
     tracks = []
+    output_tracks = [(output_title(output), {"kind": "output", "device": output, "volume": volume("desktop")})
+                     for output in outputs]   # each chosen output on its own track, named as Windows names it
     if not specific:
         if replay.get("game_audio", True):
-            if outputs:   # each chosen output on its own track, named as Windows names it
-                tracks += [(output.removeprefix("loopback:").removesuffix(" [Loopback]"),
-                            {"kind": "output", "device": output, "volume": volume("desktop")}) for output in outputs]
+            if output_tracks:
+                tracks += output_tracks
             else:
                 tracks.append(("Game and desktop sound", {"kind": "game", "app": "", "volume": volume("desktop")}))
     else:
@@ -82,9 +83,29 @@ def audio_plan(cfg, replay=None, build=0, labels=None, recording=False):
                 tracks.append((GAME_TITLE, {"kind": "app", "app": GAME, "volume": volume("game")}))
             for app in (a for a in replay.get("separate_apps", []) if valid_app_name(a)):
                 tracks.append((labels.get(app.casefold(), app), {"kind": "app", "app": app, "volume": volume(app)}))
+            # Outputs ticked here are recorded whole too (a chat headset, a stream mix).
+            tracks += output_tracks
     if replay.get("microphone", True):
-        tracks.append(("Microphone", {"kind": "microphone", "device": microphone, "volume": volume("microphone")}))
+        # One microphone is "Microphone"; several are each named as Windows names them.
+        for device in microphones or [""]:
+            title = microphone_title(device) if len(microphones) > 1 else "Microphone"
+            tracks.append((title, {"kind": "microphone", "device": device, "volume": volume("microphone")}))
     return [(title, dict(cfg, track=track)) for title, track in tracks]
+
+
+def chosen_microphones(replay):
+    """The microphones recordings use: the list, or the single one of 1.1 and earlier."""
+    inputs = list((replay or {}).get("inputs") or [])
+    legacy = (replay or {}).get("mic_device", "")
+    return inputs or ([legacy] if legacy else [])
+
+
+def output_title(device):
+    return device.removeprefix("loopback:").removesuffix(" [Loopback]")
+
+
+def microphone_title(device):
+    return device.removeprefix("input:") or "Microphone"
 
 
 def mixed_inputs(plan):

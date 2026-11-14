@@ -126,6 +126,16 @@ def silence_wait(seconds_since_sound):
     return SILENCE_TICK_PLAYING if seconds_since_sound < PLAYING_WITHIN else SILENCE_TICK_IDLE
 
 
+# FFmpeg takes each sound input only as fast as the video's real time advances.
+# A device's own clock is never exactly the PC's (a USB DAC runs a little fast or
+# slow), and a packet arriving late after silence was already filled in counts
+# twice: over an all-day replay the sound drifted seconds ahead, FFmpeg stopped
+# reading it, and the track ended with "could not keep up". Each source is held
+# within this much of real time: a packet further ahead is left out (20 ms, rarely),
+# and a source further behind gets silence.
+DRIFT_SLACK = 0.2
+
+
 class PCMStream:
     """Bounded callback queue. No disk audio, polling timer, or silent sample loss."""
 
@@ -144,6 +154,7 @@ class PCMStream:
         if self.source_channels < 1:
             raise RuntimeError("This device has no input channels")
         self.state, self.pending = None, bytearray()
+        self.started, self.produced, self.dropped = time.monotonic(), 0.0, 0.0   # see DRIFT_SLACK
 
         def callback(data, _frames, _time, status):
             if status:
@@ -152,7 +163,7 @@ class PCMStream:
                 )
                 return None, pa.paAbort
             try:
-                self.queue.put_nowait(data)
+                self.queue.put_nowait((time.monotonic(), data))   # when it arrived, for DRIFT_SLACK
             except queue.Full:
                 self.error = RuntimeError(
                     "Audio capture could not keep up; no samples were silently discarded"
@@ -180,7 +191,8 @@ class PCMStream:
         except queue.Empty:
             pass
         self.pending.clear()
-        self.last_samples = time.monotonic()
+        self.last_samples = self.started = time.monotonic()   # real time starts again here
+        self.produced = 0.0
 
     def read(self, frames, timeout=3):
         op = _audioop()
@@ -191,7 +203,7 @@ class PCMStream:
             if self.error:
                 raise self.error
             try:
-                data = self.queue.get(timeout=max(0.001, deadline - time.monotonic()))
+                item = self.queue.get(timeout=max(0.001, deadline - time.monotonic()))
             except queue.Empty as exc:
                 if self.error:
                     raise self.error
@@ -200,19 +212,29 @@ class PCMStream:
                     # sound. Preserve that interval, without masking a missing
                     # microphone or a callback overflow.
                     now = time.monotonic()
-                    missing = max(
-                        frames, round((now - self.last_samples) * self.target_rate)
-                    )
-                    if missing > self.target_rate * 3:
+                    if (now - self.last_samples) * self.target_rate > self.target_rate * 3:
                         raise RuntimeError(
                             "System audio stalled for more than three seconds"
                         ) from exc
+                    # Exactly the time not yet covered, so nothing is counted twice.
+                    missing = max(frames, round((now - self.started) * self.target_rate - self.produced))
                     self.pending.extend(bytes(missing * self.target_channels * 2))
+                    self.produced += missing
                     self.last_samples = now
                     break
                 raise RuntimeError(
                     "Windows supplied no audio; check the microphone privacy setting and device"
                 ) from exc
+            arrived, data = item if isinstance(item, tuple) else (time.monotonic(), item)
+            count = len(data) / (2 * self.source_channels) * self.target_rate / self.source_rate
+            due = (arrived - self.started) * self.target_rate   # what real time asks for by then
+            if self.produced + count > due + DRIFT_SLACK * self.target_rate:
+                self.dropped += count   # this device's clock runs ahead of the PC's
+                continue
+            if self.produced < due - DRIFT_SLACK * self.target_rate:
+                gap = round(due - DRIFT_SLACK / 2 * self.target_rate - self.produced)   # running behind
+                self.pending.extend(bytes(gap * self.target_channels * 2))
+                self.produced += gap
             channels = self.source_channels
             if channels == 2 and self.target_channels == 1:
                 data = op.tomono(data, 2, 0.5, 0.5)
@@ -223,6 +245,7 @@ class PCMStream:
             if channels == 1 and self.target_channels == 2:
                 data = op.tostereo(data, 2, 1, 1)
             self.pending.extend(data)
+            self.produced += len(data) / (2 * self.target_channels)
             self.last_samples = self.last_sound = time.monotonic()
         result = bytes(self.pending[:size])
         del self.pending[:size]
@@ -274,14 +297,17 @@ def mix_to_pipe(config, pipe):
                                              silence_on_idle=True))
                     gains.append(volumes.get("desktop", 1.0))
             if config.get("microphone"):
-                name = config.get("mic_device") or (device if device.startswith("input:") else "default_input")
-                streams.append(PCMStream(engine, pa, select_device(engine, pa, name)))
-                gains.append(volumes.get("microphone", 1.0))
+                # The chosen microphones, or the default one (or a legacy single choice).
+                inputs = list(config.get("inputs") or []) or [
+                    config.get("mic_device") or (device if device.startswith("input:") else "default_input")]
+                for name in inputs:
+                    streams.append(PCMStream(engine, pa, select_device(engine, pa, name)))
+                    gains.append(volumes.get("microphone", 1.0))
             if not streams:
                 raise RuntimeError("No recording audio source selected")
             # Each source at its volume, at half when sharing the track (as two always
-            # were): more outputs don't make each quieter. Rare peaks together are
-            # limited by the saturating add, never wrapped around.
+            # were): more outputs or microphones don't make each quieter. Rare peaks
+            # together are limited by the saturating add, never wrapped around.
             gains = [g * 0.5 if len(streams) > 1 else g for g in gains]
             wait_for_reader(output, streams)
             while True:

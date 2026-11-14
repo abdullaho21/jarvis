@@ -62,11 +62,14 @@ if sys.platform == "win32":
     # desktop sound, or only "specific" ones: the game running (game_track), the
     # programs in separate_apps and the microphone. volumes: percent per source,
     # by "game", "desktop", "microphone" or a program's name; 100 when unset.
-    # mic_device: the microphone recordings use ("input:<name>"; "" is Windows'
-    # default), apart from the one voice commands listen on (audio.device).
-    # outputs: with all audio, the sound outputs recorded ("loopback:<name>", up to
-    # MAX_OUTPUTS, each its own track when tracks are separate); [] is the default output.
-    DEFAULTS["replay"].update(sources="all", game_track=True, volumes={}, mic_device="", outputs=[])
+    # inputs: the microphones recordings use ("input:<name>", up to MAX_INPUTS, each
+    # its own track when tracks are separate), apart from the one voice commands
+    # listen on (audio.device); [] is Windows' default microphone.
+    # mic_device: the single microphone of 1.1 and earlier, moved into inputs on load.
+    # outputs: the sound outputs recorded ("loopback:<name>", up to MAX_OUTPUTS, each
+    # its own track when tracks are separate). With all audio, [] is the default
+    # output; with specific apps, each one ticked is recorded whole beside the apps.
+    DEFAULTS["replay"].update(sources="all", game_track=True, volumes={}, mic_device="", inputs=[], outputs=[])
     # monitor_name: the chosen display's own name ("Example 27Q"), so it is found
     # again when Windows renumbers its displays (see capture.chosen_display).
     DEFAULTS["recording"]["monitor_name"] = ""
@@ -95,6 +98,8 @@ if sys.platform == "win32":
                               volumes={"Spotify": 70, "game": 80})
 # Sound outputs one capture can record at once (game, chat, music, browser…).
 MAX_OUTPUTS = 6
+# Microphones one capture can record at once (headset, desk microphone, guest…).
+MAX_INPUTS = 4
 # Sections that existed in earlier versions and are now ignored.
 LEGACY_SECTIONS: tuple[str, ...] = ()
 # Free-form mappings; their keys are user phrases, not setting names.
@@ -297,6 +302,18 @@ def validate(data: dict) -> dict:
         mic = c["replay"]["mic_device"]
         if not isinstance(mic, str) or len(mic) > 300 or "\0" in mic or (mic and not mic.startswith("input:")):
             raise ValueError("Choose a microphone for recordings, or the Windows default")
+        inputs = c["replay"]["inputs"]
+        if (not isinstance(inputs, list) or len(inputs) > MAX_INPUTS or len(set(map(str, inputs))) != len(inputs)
+                or not all(isinstance(i, str) and i.startswith("input:") and len(i) <= 300 and "\0" not in i
+                           for i in inputs)):
+            raise ValueError(f"Choose up to {MAX_INPUTS} different microphones to record")
+        if mic:
+            # 1.1 and earlier kept one microphone here: it becomes the first of the list.
+            if mic not in inputs:
+                if len(inputs) >= MAX_INPUTS:
+                    raise ValueError(f"Choose up to {MAX_INPUTS} different microphones to record")
+                c["replay"]["inputs"] = [mic, *inputs]
+            c["replay"]["mic_device"] = ""
         outputs = c["replay"]["outputs"]
         if (not isinstance(outputs, list) or len(outputs) > MAX_OUTPUTS or len(set(map(str, outputs))) != len(outputs)
                 or not all(isinstance(o, str) and o.startswith("loopback:") and len(o) <= 300 and "\0" not in o

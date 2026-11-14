@@ -84,14 +84,37 @@ def configure_startup(enabled):
     return {"ok": True, "startup": enabled}
 
 
+def other_install(status):
+    """Whether a running service comes from another Jarvis folder than this app.
+
+    A window from one install talking to another's service saves settings that
+    service can't read and records with that version's code: after an update, or
+    with a newer build beside the installed one, 1.1's service kept recording.
+    Only the packaged app replaces services; running from source never does."""
+    if not getattr(sys, "frozen", False) or not status.get("ok"):
+        return False
+    import ntpath   # Windows paths, compared the Windows way wherever this runs
+
+    running = status.get("app")
+    if not running:
+        return True   # 1.1 and earlier don't say: they are not this app
+    return ntpath.normcase(ntpath.normpath(running)) != ntpath.normcase(ntpath.normpath(str(app_dir())))
+
+
 def start_service():
     from ..client import request
 
     try:
-        if request("status", timeout=1).get("ok"):
-            return
+        status = request("status", timeout=1)
     except (OSError, ValueError, RuntimeError):
-        pass
+        status = {}
+    if status.get("ok"):
+        if not other_install(status):
+            return
+        try:
+            stop_service()   # waits for a capture to finish, then this app's own service starts
+        except (OSError, ValueError, RuntimeError):
+            return   # it could not stop: keep it rather than run two
     folder = data_dir() / "logs"
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / "daemon.log"

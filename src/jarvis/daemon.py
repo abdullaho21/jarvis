@@ -601,8 +601,13 @@ class Service:
             self.stopping.set()
             return {"ok": True, "pid": os.getpid(), "message": "Closing Jarvis"}
         if op == "status":
+            from . import __version__
+            from .host import app_dir
             from .process_memory import snapshot
-            return {"ok": True, "status": self.status(), "pid": os.getpid(), "memory": snapshot()}
+            # version and app: which install this service runs from, so a window from
+            # another one (a newer version beside the installed one) can replace it.
+            return {"ok": True, "status": self.status(), "pid": os.getpid(), "memory": snapshot(),
+                    "version": __version__, "app": str(app_dir())}
         if op == "config":
             if is_windows():   # Windows' own Startup apps switch may have changed it since
                 from .windows.startup import startup_enabled
